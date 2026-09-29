@@ -1,6 +1,6 @@
 # Harper Application Architecture Benchmarks
 
-An open system for benchmarking Harper's collapse stack application architecture against separated stack architecture and platforms.
+An open system for benchmarking Harper's collapsed stack application architecture against separated stack architecture and platforms.
 
 The purpose of this being open source is so that the wider community, including the projects and companies we are comparing ourselves against, can openly provide feedback and contribute. Anyone may reference this work, and contributions are accepted.
 
@@ -73,7 +73,7 @@ The tracks are related. Higher throughput on fixed hardware means fewer machines
 
 Every comparison starts **locally**, with all targets containerized on one machine under a fixed CPU budget. Local runs are cheap, reproducible, and isolate architectural differences well. They support claims about request-path hop count, server time, CPU per request, and where an entry falls over under load. They do not support delivered-latency or hosted-tier claims.
 
-Once a local run produces a signal, we may proceed to a **deployed** analysis follows and both data sets are kept. Where a component cannot run locally, or its local build does not represent the hosted product, that is documented and follow-up work uses the live comparison only. For example, local Supabase uses different PostgREST versions, no connection pooler, no shared-CPU neighbours. Its local numbers do not carry to production and thus should be omitted from a final results report.
+Once a local run produces a signal, we may proceed to a **deployed** analysis. Both data sets are kept. Where a component cannot run locally, or its local build does not represent the hosted product, that is documented and follow-up work uses the live comparison only. For example, local Supabase uses different PostgREST versions, no connection pooler, no shared-CPU neighbours. Its local numbers do not carry to production and thus should be omitted from a final results report.
 
 ### Measurement rules
 
@@ -83,7 +83,7 @@ Once a local run produces a signal, we may proceed to a **deployed** analysis fo
 - **Guard every target against silent misconfiguration**: A misconfigured system usually produces a plausible number rather than an obvious failure. In one vector run, a pgvector operator mismatch silently became a sequential scan, a Qdrant setting left it on brute-force search reporting full recall at every parameter, and an index answered queries before it finished building. A throughput-only benchmark reports all three as results. Every target should carry a ground-truth correctness check that catches this, and those checks stay in the harness.
 - **Measure every target in one session**: pgvector's own numbers moved 18% between sessions on identical hardware. Cross-session ratios are not sound.
 - **Run a load ladder**: A single saturating concurrency produces no inflection point. The reportable result is "sustains N more requests per second before p99 crosses threshold T," which requires the ladder to be in the harness from the start.
-- **Account for CPU per target, not just in total**: In one stack run, the HTTP framework alone used 40.3 of 60.8 CPU-seconds, the database 17.0, the cache 3.5. Without that breakdown there is no way to tell whether an advantage is architectural or hidden behind a cost both sides pay. This is also why collecting results over multiple separated application configurations is important for accurate results. We don't have about a single technologies performance, instead we care about Harper's holistic performance difference.
+- **Account for CPU per target, not just in total**: In one stack run, the HTTP framework alone used 40.3 of 60.8 CPU-seconds, the database 17.0, the cache 3.5. Without that breakdown there is no way to tell whether an advantage is architectural or hidden behind a cost both sides pay. This is also why collecting results over multiple separated application configurations is important for accurate results. We don't care about a single technologies performance, instead we care about Harper's holistic performance difference.
 - **Use an open load model**: Constant arrival rate, one target per run. Never drive two targets from one closed loop; the slower one throttles the load offered to the faster one.
 - **Report distributions, not medians alone**: Raw per-request samples across repeated trials, with the range shown. Overlapping trial ranges mean the cell is unresolved, not a win. Every sample is retained so proper intervals can be applied later without re-running.
 - **Record exact run conditions**: versions, clocks, instance types, dataset shape, measured cache-hit rates, worker counts. Record shape matters — small records mostly measure the HTTP and JSON layers rather than the datastore, compressing the very difference being measured.
@@ -106,7 +106,7 @@ Results are to be published as measured. **A result is never omitted after the f
 
 Three outcomes are distinct:
 
-- **Measure loss**: should published as measured. It also becomes engineering work for Harper to improve itself, and the comparison re-runs once that work lands. A benchmark that forces the platform to improve before it can be published has done its job.
+- **Measure loss**: should be published as measured. It also becomes engineering work for Harper to improve itself, and the comparison re-runs once that work lands. A benchmark that forces the platform to improve before it can be published has done its job.
 - **Capability gap**: some functionality an entry does not implement belongs in a capability matrix with no performance number in either direction. A latency figure against an absent feature measures nothing.
 - **Non-equivalent semantics**: is not a result at all. If two entries offer different guarantees, the cell is invalid rather than close. It is fixed to match or scoped out with the reason stated. Equal latency under a weaker guarantee is not a tie.
 
@@ -137,8 +137,6 @@ From the rough draft, clarify and define the intended stack exactly. Modify the 
 ### 2. Plan it
 
 Now fill in the rest of `plan.md`: implementation steps with specific component names and versions, deployment steps, expected metrics, project structure, key tooling. Quote the reference application's specification. Fold in what the rough cut found.
-
-One plan covers many builds against one result board, not one plan per component.
 
 This is where you can start deciding if it should use an existing implementation, modify/update one, or create new things.
 
