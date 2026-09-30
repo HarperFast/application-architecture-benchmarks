@@ -1,0 +1,18 @@
+{
+	"name": "harper-websocket-scale",
+	"private": true,
+	"description": "Unit-cost characterization of Harper WebSocket connections, subscriptions, fan-out delivery and writes",
+	"engines": {
+		"node": ">=24"
+	},
+	"scripts": {
+		"conns": "node run.mts --scenario=conns",
+		"fanout": "node run.mts --scenario=fanout"
+	},
+	"dependencies": {
+		"@harperfast/integration-testing": "^1.0.0",
+		"harper": "^5.3.0",
+		"mqtt-packet": "~9.0.1",
+		"ws": "^8.21.3"
+	}
+}

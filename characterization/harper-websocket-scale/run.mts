@@ -1,0 +1,471 @@
+/**
+ * WebSocket scale benchmark: per-connection / per-subscription memory, connect cost, and fan-out
+ * delivery cost, reported as unit costs that can be turned into per-node capacity estimates.
+ *
+ * Harper and the load generators are pinned to disjoint CPU sets so Harper's CPU use can be read
+ * from /proc without the clients' share. Clients spread connections across 127.0.1.x source
+ * addresses to get past the ~28k ephemeral ports available per (source, destination) pair.
+ *
+ * Scenarios:
+ *   conns   Ramp to each --steps connection count with --subs subscriptions per connection. Reports
+ *           RSS / heap per connection, connect rate and CPU per connect, and idle CPU (keepalives).
+ *   fanout  Hold --conns connections × --subs subscriptions over --topics topics, then publish at
+ *           each --rates rate. Reports deliveries/s, CPU µs per delivery, and end-to-end latency.
+ *
+ * Usage (see README.md):
+ *   node run.mts --scenario=conns --steps=10000,50000,100000 --subs=0
+ *   node run.mts --scenario=fanout --conns=20000 --topics=1 --rates=1,10,50 --payload=1000
+ *
+ * Harper-side CPU is Harper alone: no TLS (as behind a TLS-terminating proxy).
+ */
+import { parseArgs } from 'node:util';
+import { fork, execFileSync, type ChildProcess } from 'node:child_process';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statfsSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { availableParallelism, tmpdir } from 'node:os';
+import { setTimeout as delay } from 'node:timers/promises';
+import http from 'node:http';
+import {
+	createHarperContext,
+	setupHarperWithFixture,
+	teardownHarper,
+	sendOperation,
+} from '@harperfast/integration-testing';
+
+const HARPER_BIN = join(import.meta.dirname, 'node_modules', 'harper', 'dist', 'bin', 'harper.js');
+const TMPFS_MAGIC = 0x01021994;
+const APP_DIR = join(import.meta.dirname, 'app');
+const CLIENT = join(import.meta.dirname, 'client.mts');
+const CLK_TCK = 100;
+const HIST_SCALE = 8;
+
+const { values: args } = parseArgs({
+	options: {
+		'scenario': { type: 'string', default: 'conns' },
+		'protocol': { type: 'string', default: 'mqtt' },
+		'threads': { type: 'string', default: '8' },
+		// defaults: Harper on the first --threads CPUs, load generators on the rest
+		'harper-cpus': { type: 'string' },
+		'client-cpus': { type: 'string' },
+		'clients': { type: 'string', default: '8' },
+		'source-ips': { type: 'string', default: '16' },
+		'steps': { type: 'string', default: '10000,25000,50000' },
+		'conns': { type: 'string', default: '10000' },
+		'subs': { type: 'string', default: '1' },
+		'topics': { type: 'string', default: '1' },
+		'rates': { type: 'string', default: '1,10,100' },
+		'payload': { type: 'string', default: '200' },
+		'publish': { type: 'string', default: 'mqtt' },
+		'duration': { type: 'string', default: '20' },
+		'settle': { type: 'string', default: '15' },
+		'keepalive': { type: 'string', default: '60' },
+		'concurrency': { type: 'string', default: '100' },
+		'slow-fraction': { type: 'string', default: '0' },
+		// publishing processes (and, for MQTT, connections) the rate is split across
+		'publishers': { type: 'string', default: '1' },
+		'uws': { type: 'boolean', default: false },
+		// another build's dist/bin/harper.js, for A/B runs of a change under the same harness
+		'harper-bin': { type: 'string', default: HARPER_BIN },
+		// subscribers connect over Harper's per-worker Unix socket mirrors, as a TLS-terminating proxy would
+		'uds': { type: 'boolean', default: false },
+		'log-level': { type: 'string', default: 'warn' },
+		// CPU-profile every worker for this many seconds, starting 5s into the first fanout rate or at
+		// the start of the last conns step's settle window; profiles land in --profile-dir
+		'profile': { type: 'string' },
+		'profile-dir': { type: 'string', default: join(tmpdir(), 'ws-scale-profile') },
+		'harper-env': { type: 'string', multiple: true, default: [] },
+		'engine': { type: 'string', default: 'rocksdb' },
+		'label': { type: 'string', default: '' },
+		'out': { type: 'string' },
+	},
+});
+
+const threads = Number(args.threads);
+const cpuCount = availableParallelism();
+if (cpuCount <= threads) throw new Error(`need more than --threads=${threads} CPUs to keep load generators off Harper's CPUs`);
+args['harper-cpus'] ??= `0-${threads - 1}`;
+args['client-cpus'] ??= `${threads}-${cpuCount - 1}`;
+const firstHarperCpu = Number(/^\d+/.exec(args['harper-cpus']!)![0]);
+const cpufreq = `/sys/devices/system/cpu/cpu${firstHarperCpu}/cpufreq/scaling_max_freq`;
+// recorded with every result so CPU time can be normalized to cycles; pin it (e.g. cpupower frequency-set -u) for stable numbers
+const cpuMaxMHz = existsSync(cpufreq) ? Number(readFileSync(cpufreq, 'utf8')) / 1000 : undefined;
+const installParent = process.env.HARPER_INTEGRATION_TEST_INSTALL_PARENT_DIR || tmpdir();
+if (statfsSync(installParent).type === TMPFS_MAGIC)
+	throw new Error(
+		`${installParent} is tmpfs, which skews storage costs; set TMPDIR or HARPER_INTEGRATION_TEST_INSTALL_PARENT_DIR to a disk-backed directory`
+	);
+const clientCount = Number(args.clients);
+const protocol = args.protocol as 'mqtt' | 'ws';
+const subs = protocol === 'ws' ? 1 : Number(args.subs);
+const topics = Number(args.topics);
+const sourceIps = Array.from({ length: Number(args['source-ips']) }, (_, i) => `127.0.1.${i + 1}`);
+
+function cpuTicks(pid: number) {
+	const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+	const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+	return Number(fields[11]) + Number(fields[12]); // utime + stime
+}
+function rssMB(pid: number) {
+	const match = /VmRSS:\s+(\d+)/.exec(readFileSync(`/proc/${pid}/status`, 'utf8'));
+	return Number(match![1]) / 1024;
+}
+function writeBytes(pid: number) {
+	return Number(/write_bytes:\s+(\d+)/.exec(readFileSync(`/proc/${pid}/io`, 'utf8'))![1]);
+}
+function pin(pid: number, cpus: string) {
+	execFileSync('taskset', ['-a', '-p', '-c', cpus, String(pid)], { stdio: 'ignore' });
+}
+
+let ctx: any;
+async function heapMB() {
+	const info = await sendOperation(ctx.harper, { operation: 'system_information', attributes: ['threads'] });
+	let used = 0;
+	let total = 0;
+	for (const thread of info.threads ?? []) {
+		used += thread.heapUsed ?? 0;
+		total += thread.heapTotal ?? 0;
+	}
+	return { used: used / 2 ** 20, total: total / 2 ** 20 };
+}
+
+class Client {
+	child: ChildProcess;
+	pending = new Map<string, (value: any) => void>();
+	constructor() {
+		this.child = fork(CLIENT, [], { execArgv: ['--max-old-space-size=8192'], stdio: 'inherit' });
+		pin(this.child.pid!, args['client-cpus']!);
+		this.child.on('message', (message: any) => {
+			this.pending.get(message.reply)?.(message);
+			this.pending.delete(message.reply);
+		});
+	}
+	request(message: any): Promise<any> {
+		return new Promise((resolve) => {
+			this.pending.set(message.cmd, resolve);
+			this.child.send(message);
+		});
+	}
+}
+
+function sumStats(all: any[]) {
+	const total: any = { latencyHist: [] };
+	for (const stats of all) {
+		for (const [key, value] of Object.entries(stats)) {
+			if (key === 'latencyHist')
+				(value as number[]).forEach((count, i) => (total.latencyHist[i] = (total.latencyHist[i] ?? 0) + count));
+			else if (typeof value === 'number') total[key] = (total[key] ?? 0) + value;
+			else if (key === 'lastError' && value) total.lastError = value;
+			else if (key === 'closeCodes') {
+				total.closeCodes ??= {};
+				for (const [code, count] of Object.entries(value as Record<string, number>))
+					total.closeCodes[code] = (total.closeCodes[code] ?? 0) + count;
+			}
+		}
+	}
+	return total;
+}
+
+function percentiles(hist: number[], ps: number[]) {
+	const count = hist.reduce((a, b) => a + b, 0);
+	return ps.map((p) => {
+		if (!count) return NaN;
+		let seen = 0;
+		for (let i = 0; i < hist.length; i++) {
+			seen += hist[i] ?? 0;
+			if (seen >= count * p) return (2 ** ((i + 1) / HIST_SCALE) - 1) / 1000; // bucket upper bound, ms
+		}
+		return NaN;
+	});
+}
+
+const results: any[] = [];
+function report(row: Record<string, unknown>) {
+	row.cpuMaxMHz = cpuMaxMHz;
+	if (cpuMaxMHz) {
+		for (const [key, value] of Object.entries(row)) {
+			if (key.startsWith('cpuUsPer') && typeof value === 'number')
+				row[key.replace('cpuUsPer', 'cpuKCyclesPer')] = (value * cpuMaxMHz) / 1000;
+		}
+	}
+	results.push(row);
+	console.log(
+		'WS_SCALE_RESULT ' +
+			Object.entries(row)
+				.map(([k, v]) => `${k}=${typeof v === 'number' ? +v.toFixed(2) : v}`)
+				.join(' ')
+	);
+}
+
+async function precreateRecords(host: string, port: number, auth: string) {
+	const agent = new http.Agent({ keepAlive: true, maxSockets: 64 });
+	let next = 0;
+	const worker = async () => {
+		while (next < topics) {
+			const id = next++;
+			const body = JSON.stringify({ t: 0, s: 0, p: 'init' });
+			await new Promise<void>((resolve, reject) => {
+				const req = http.request(
+					{
+						host,
+						port,
+						path: `/Bench/${id}`,
+						method: 'PUT',
+						agent,
+						headers: { 'content-type': 'application/json', 'authorization': auth },
+					},
+					(res) => {
+						res.resume();
+						res.on('end', () =>
+							res.statusCode! < 300 ? resolve() : reject(new Error(`PUT ${id} -> ${res.statusCode}`))
+						);
+					}
+				);
+				req.on('error', reject);
+				req.end(body);
+			});
+		}
+	};
+	await Promise.all(Array.from({ length: 64 }, worker));
+	agent.destroy();
+}
+
+async function main() {
+	ctx = createHarperContext('ws-scale');
+	const env: Record<string, string> = { HARPER_STORAGE_ENGINE: args.engine! };
+	if (args.uws && !args.uds) env.HARPER_UWS_HTTP = '1';
+	const harperConfig: Record<string, unknown> = { threads: { count: threads }, logging: { level: args['log-level'] } };
+	if (args.uds) {
+		(harperConfig as any).http = { securePort: 9927 };
+		(harperConfig as any).tls = { unixDomainSockets: true };
+		if (args.uws) env.HARPER_UWS_UDS = '1';
+	}
+	const profileDir = args['profile-dir']!;
+	if (args.profile) {
+		rmSync(profileDir, { recursive: true, force: true });
+		mkdirSync(profileDir, { recursive: true });
+		env.WS_SCALE_PROFILE_DIR = profileDir;
+		(harperConfig.threads as any).preloadRequire = join(import.meta.dirname, 'profile-preload.cjs');
+	}
+	const startProfile = () => args.profile && writeFileSync(join(profileDir, 'start'), args.profile);
+	for (const pair of args['harper-env']!) {
+		const eq = pair.indexOf('=');
+		env[pair.slice(0, eq)] = pair.slice(eq + 1);
+	}
+	await setupHarperWithFixture(ctx, APP_DIR, {
+		harperBinPath: args['harper-bin'],
+		config: harperConfig,
+		env,
+		startupTimeoutMs: 120_000,
+	});
+	const harperPid = ctx.harper.process.pid;
+	pin(harperPid, args['harper-cpus']!);
+	const { hostname: host, port } = new URL(ctx.harper.httpURL);
+	const auth = 'Basic ' + Buffer.from(`${ctx.harper.admin.username}:${ctx.harper.admin.password}`).toString('base64');
+	const socketsDir = join(ctx.harper.dataRootDir, 'sockets');
+	let udsPaths: string[] | undefined;
+	if (args.uds) {
+		// Linux caps a Unix socket path at 107 bytes; Harper skips (Node) or fails (uWS) a longer mirror
+		const longestPath = join(socketsDir, `${threads - 1}-9927.sock`);
+		if (longestPath.length > 107)
+			throw new Error(
+				`UDS mirror path ${longestPath} is ${longestPath.length} bytes (limit 107); set HARPER_INTEGRATION_TEST_INSTALL_PARENT_DIR to a shorter directory`
+			);
+		for (let waited = 0; ; waited += 250) {
+			udsPaths = readdirSync(socketsDir)
+				.filter((file) => /^\d+-.*9927\.sock$/.test(file))
+				.map((file) => join(socketsDir, file));
+			if (udsPaths.length >= threads) break;
+			if (waited > 30_000) throw new Error(`only ${udsPaths.length} of ${threads} UDS mirrors bound in ${socketsDir}`);
+			await delay(250);
+		}
+	}
+	if (args.uds) console.log(`UDS mirrors: ${udsPaths!.length}`);
+	console.log(
+		`Harper pid=${harperPid} at ${ctx.harper.httpURL} threads=${threads} cpus=${args['harper-cpus']} uws=${args.uws}`
+	);
+
+	const clients = Array.from({ length: clientCount }, () => new Client());
+	const clientStats = async () => sumStats(await Promise.all(clients.map((c) => c.request({ cmd: 'stats' }))));
+	const clientTicks = () => clients.reduce((sum, c) => sum + cpuTicks(c.child.pid!), 0);
+
+	try {
+		await precreateRecords(host, Number(port), auth);
+		await delay(3000);
+		const baseRss = rssMB(harperPid);
+		const baseHeap = await heapMB();
+		console.log(`baseline rss=${baseRss.toFixed(0)}MB heap=${baseHeap.used.toFixed(0)}MB, ${topics} records`);
+		let opened = 0;
+		const openTo = async (target: number) => {
+			const add = target - opened;
+			const per = Math.ceil(add / clientCount);
+			const ticks0 = cpuTicks(harperPid);
+			const start = performance.now();
+			await Promise.all(
+				clients.map((client, i) => {
+					const count = Math.max(0, Math.min(per, add - i * per));
+					return client.request({
+						cmd: 'connect',
+						host,
+						port: Number(port),
+						protocol,
+						startIndex: opened + i * per,
+						count,
+						subsPerConn: subs,
+						topics,
+						// each client process gets its own slice of source addresses
+						sourceIps: sourceIps.filter((_, j) => j % clientCount === i),
+						concurrency: Number(args.concurrency),
+						auth,
+						keepalive: Number(args.keepalive),
+						slowFraction: Number(args['slow-fraction']),
+						udsPaths,
+					});
+				})
+			);
+			const seconds = (performance.now() - start) / 1000;
+			opened = target;
+			return { seconds, cpuSeconds: (cpuTicks(harperPid) - ticks0) / CLK_TCK, added: add };
+		};
+
+		if (args.scenario === 'conns') {
+			// slope between consecutive steps excludes fixed startup cost (JIT, first-connection allocations)
+			let prev = { open: 0, rss: baseRss, heap: baseHeap.used };
+			const steps = args.steps!.split(',').map(Number);
+			for (const step of steps) {
+				const ramp = await openTo(step);
+				if (step === steps.at(-1)) startProfile();
+				const ticks0 = cpuTicks(harperPid);
+				await delay(Number(args.settle) * 1000);
+				const idleCores = (cpuTicks(harperPid) - ticks0) / CLK_TCK / Number(args.settle);
+				const rss = rssMB(harperPid);
+				const heap = await heapMB();
+				const stats = await clientStats();
+				report({
+					label: args.label,
+					scenario: 'conns',
+					protocol,
+					uws: args.uws,
+					subs,
+					topics,
+					open: stats.open,
+					failed: stats.failed,
+					subscribed: stats.subscribed,
+					rssMB: rss,
+					heapUsedMB: heap.used,
+					heapTotalMB: heap.total,
+					rssKBPerConn: ((rss - baseRss) * 1024) / stats.open,
+					heapKBPerConn: ((heap.used - baseHeap.used) * 1024) / stats.open,
+					rssKBPerConnStep: ((rss - prev.rss) * 1024) / (stats.open - prev.open),
+					heapKBPerConnStep: ((heap.used - prev.heap) * 1024) / (stats.open - prev.open),
+					connectsPerSec: ramp.added / ramp.seconds,
+					cpuUsPerConnect: (ramp.cpuSeconds * 1e6) / ramp.added,
+					idleCores,
+					clientRssMB: stats.rss / 2 ** 20,
+				});
+				prev = { open: stats.open, rss, heap: heap.used };
+				if (stats.lastError) console.log(`  last client error: ${stats.lastError}`);
+			}
+		} else if (args.scenario === 'fanout') {
+			const ramp = await openTo(Number(args.conns));
+			await delay(Number(args.settle) * 1000);
+			let stats = await clientStats();
+			console.log(
+				`opened ${stats.open} (failed ${stats.failed}) subscribed ${stats.subscribed} in ${ramp.seconds.toFixed(1)}s; rss=${rssMB(harperPid).toFixed(0)}MB`
+			);
+			const subscribersPerTopic = stats.subscribed / topics;
+			const publishers = Array.from({ length: Number(args.publishers) }, () => new Client());
+			const publisherTicks = () => publishers.reduce((sum, p) => sum + cpuTicks(p.child.pid!), 0);
+			const durationMs = Number(args.duration) * 1000;
+			let publishedTotal = 0;
+			let completedTotal = 0; // publisher stats are cumulative across rates
+			for (const rate of args.rates!.split(',').map(Number)) {
+				const before = await clientStats();
+				const harper0 = cpuTicks(harperPid);
+				const written0 = writeBytes(harperPid);
+				const client0 = clientTicks();
+				const publisher0 = publisherTicks();
+				const start = performance.now();
+				if (publishedTotal === 0) setTimeout(startProfile, 5000);
+				const published = sumStats(
+					await Promise.all(
+						publishers.map((publisher, i) =>
+							publisher.request({
+								cmd: 'publish',
+								host,
+								port: Number(port),
+								mode: args.publish,
+								topics,
+								topicOffset: i,
+								rate: rate / publishers.length,
+								payloadBytes: Number(args.payload),
+								durationMs,
+								auth,
+							})
+						)
+					)
+				);
+				// let in-flight deliveries land; stop early once the count stops moving
+				let last = -1;
+				for (let i = 0; i < 30; i++) {
+					await delay(1000);
+					stats = await clientStats();
+					if (stats.received === last) break;
+					last = stats.received;
+				}
+				const seconds = (performance.now() - start) / 1000;
+				const harperCpu = (cpuTicks(harperPid) - harper0) / CLK_TCK;
+				const clientCpu = (clientTicks() - client0) / CLK_TCK;
+				const publisherCpu = (publisherTicks() - publisher0) / CLK_TCK;
+				const delivered = stats.received - before.received;
+				const publishedCount = published.published - publishedTotal;
+				publishedTotal = published.published;
+				const completedDelta = published.publishCompleted - completedTotal;
+				completedTotal = published.publishCompleted;
+				const hist = stats.latencyHist.map((count: number, i: number) => count - (before.latencyHist[i] ?? 0));
+				const [p50, p99, p999] = percentiles(hist, [0.5, 0.99, 0.999]);
+				report({
+					label: args.label,
+					scenario: 'fanout',
+					protocol,
+					uws: args.uws,
+					uds: args.uds,
+					publish: args.publish,
+					conns: stats.open,
+					subsPerTopic: subscribersPerTopic,
+					payload: Number(args.payload),
+					rate,
+					publishedPerSec: publishedCount / (durationMs / 1000),
+					...(args.publish === 'put' && {
+						putsCompletedPerSec: completedDelta / seconds,
+						cpuUsPerPut: (harperCpu * 1e6) / completedDelta,
+						putErrors: published.publishErrors,
+					}),
+					deliveredPerSec: delivered / seconds,
+					deliveryRatio: delivered / (publishedCount * subscribersPerTopic),
+					harperCores: harperCpu / seconds,
+					cpuUsPerDelivery: (harperCpu * 1e6) / delivered,
+					clientCores: clientCpu / seconds,
+					publisherCores: publisherCpu / seconds,
+					drainSeconds: seconds - durationMs / 1000,
+					p50ms: p50,
+					p99ms: p99,
+					p999ms: p999,
+					diskBytesPerPublish: (writeBytes(harperPid) - written0) / publishedCount,
+					rssMB: rssMB(harperPid),
+					disconnected: stats.closed,
+					closeCodes: JSON.stringify(stats.closeCodes ?? {}),
+				});
+			}
+			for (const publisher of publishers) publisher.child.kill();
+		}
+	} finally {
+		await Promise.all(clients.map((c) => c.request({ cmd: 'close' }).catch(() => {})));
+		if (args.out) writeFileSync(args.out, JSON.stringify(results, null, 2));
+		await teardownHarper(ctx);
+	}
+}
+
+main().catch((error) => {
+	console.error(error);
+	process.exit(1);
+});
