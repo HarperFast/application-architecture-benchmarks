@@ -81,27 +81,38 @@ const { values: args } = parseArgs({
 });
 
 const threads = Number(args.threads);
-function allowedCpus() {
-	const list = /Cpus_allowed_list:\s*(\S+)/.exec(readFileSync('/proc/self/status', 'utf8'))![1];
+function parseCpuList(list: string) {
 	return list.split(',').flatMap((range) => {
 		const [from, to = from] = range.split('-').map(Number);
 		return Array.from({ length: to - from + 1 }, (_, i) => from + i);
 	});
+}
+function allowedCpus() {
+	return parseCpuList(/Cpus_allowed_list:\s*(\S+)/.exec(readFileSync('/proc/self/status', 'utf8'))![1]);
 }
 const cpus = allowedCpus();
 if (cpus.length <= threads)
 	throw new Error(`need more than --threads=${threads} CPUs to keep load generators off Harper's CPUs`);
 args['harper-cpus'] ??= cpus.slice(0, threads).join(',');
 args['client-cpus'] ??= cpus.slice(threads).join(',');
-const firstHarperCpu = Number(/^\d+/.exec(args['harper-cpus']!)![0]);
-function cpufreqMHz(file: string) {
-	const path = `/sys/devices/system/cpu/cpu${firstHarperCpu}/cpufreq/${file}`;
+const harperCpus = parseCpuList(args['harper-cpus']!);
+const clientCpus = parseCpuList(args['client-cpus']!);
+for (const cpu of [...harperCpus, ...clientCpus])
+	if (!cpus.includes(cpu)) throw new Error(`CPU ${cpu} is not in this process's allowed set (${cpus.join(',')})`);
+if (harperCpus.some((cpu) => clientCpus.includes(cpu)))
+	throw new Error('--harper-cpus and --client-cpus overlap, so load generators would run on Harper CPUs');
+function cpufreqMHz(cpu: number, file: string) {
+	const path = `/sys/devices/system/cpu/cpu${cpu}/cpufreq/${file}`;
 	return existsSync(path) ? Number(readFileSync(path, 'utf8')) / 1000 : undefined;
 }
-// cycle-normalized fields assume the clock is pinned: min and max both set to one frequency
-const cpuMaxMHz = cpufreqMHz('scaling_max_freq');
-const cpuMinMHz = cpufreqMHz('scaling_min_freq');
-const clockPinned = cpuMaxMHz !== undefined && cpuMaxMHz === cpuMinMHz;
+// cycle-normalized fields assume every Harper CPU is pinned: min and max both set to one frequency
+const cpuMaxMHz = cpufreqMHz(harperCpus[0], 'scaling_max_freq');
+const cpuMinMHz = cpufreqMHz(harperCpus[0], 'scaling_min_freq');
+const clockPinned =
+	cpuMaxMHz !== undefined &&
+	harperCpus.every(
+		(cpu) => cpufreqMHz(cpu, 'scaling_min_freq') === cpuMaxMHz && cpufreqMHz(cpu, 'scaling_max_freq') === cpuMaxMHz
+	);
 if (!clockPinned)
 	console.warn(
 		`CPU clock is not pinned (min ${cpuMinMHz ?? '?'} MHz, max ${cpuMaxMHz ?? '?'} MHz); cpuKCyclesPer* fields are omitted`
@@ -118,7 +129,7 @@ const topics = Number(args.topics);
 if (subs > topics) throw new Error(`--subs=${subs} needs at least as many --topics, or a connection repeats a topic`);
 if (args.uds) {
 	// Linux caps a Unix socket path at 107 bytes, and Harper skips (Node) or fails to start (uWS) a longer mirror
-	const longestPath = join(installParent, 'harper-integration-test-XXXXXX', 'sockets', `${threads - 1}-9927.sock`);
+	const longestPath = join(installParent, 'harper-integration-test-XXXXXX', 'sockets', `${threads - 1}-9927-h2.sock`);
 	if (Buffer.byteLength(longestPath) > 107)
 		throw new Error(
 			`UDS mirror paths under ${installParent} would exceed the 107-byte limit; set HARPER_INTEGRATION_TEST_INSTALL_PARENT_DIR to a shorter directory`
@@ -158,6 +169,7 @@ class Client {
 	child: ChildProcess;
 	pending = new Map<string, { resolve: (value: any) => void; reject: (error: Error) => void }>();
 	exited = false;
+	lastError?: Error;
 	constructor() {
 		this.child = fork(CLIENT, [], { execArgv: ['--max-old-space-size=8192'], stdio: 'inherit' });
 		pin(this.child.pid!, args['client-cpus']!);
@@ -167,10 +179,13 @@ class Client {
 			if (message.error) pending?.reject(new Error(`load generator ${message.reply} failed: ${message.error}`));
 			else pending?.resolve(message);
 		});
+		this.child.on('error', (error) => (this.lastError = error));
 		this.child.on('exit', (code, signal) => {
 			this.exited = true;
 			for (const { reject } of this.pending.values())
-				reject(new Error(`load generator exited (${signal ?? code}) with a request pending`));
+				reject(
+					new Error(`load generator exited (${signal ?? code}) with a request pending`, { cause: this.lastError })
+				);
 			this.pending.clear();
 		});
 	}
@@ -444,19 +459,23 @@ async function main() {
 						)
 					)
 				);
-				// rates are measured to the last delivery, not to when the drain check notices it stopped
-				let last = -1;
+				const expected = published.expectedDeliveries - expectedTotal;
+				expectedTotal = published.expectedDeliveries;
+				// drain until every expected delivery has arrived, or deliveries stop for 3 s; rates run to the last one seen
+				let received = (await clientStats()).received;
 				let lastDelivery = performance.now();
 				let drainTruncated = true;
-				for (let i = 0; i < 60; i++) {
-					await delay(1000);
+				while (performance.now() - lastDelivery < 60_000) {
 					stats = await clientStats();
-					if (stats.received === last) {
+					if (stats.received > received) {
+						received = stats.received;
+						lastDelivery = performance.now();
+					}
+					if (stats.received - before.received >= expected || performance.now() - lastDelivery > 3000) {
 						drainTruncated = false;
 						break;
 					}
-					last = stats.received;
-					lastDelivery = performance.now();
+					await delay(250);
 				}
 				const seconds = Math.max(durationMs, lastDelivery - start) / 1000;
 				const harperCpu = (cpuTicks(harperPid) - harper0) / CLK_TCK;
@@ -467,8 +486,6 @@ async function main() {
 				publishedTotal = published.published;
 				const completedDelta = published.publishCompleted - completedTotal;
 				completedTotal = published.publishCompleted;
-				const expected = published.expectedDeliveries - expectedTotal;
-				expectedTotal = published.expectedDeliveries;
 				const hist = stats.latencyHist.map((count: number, i: number) => count - (before.latencyHist[i] ?? 0));
 				const [p50, p99, p999] = percentiles(hist, [0.5, 0.99, 0.999]);
 				report({

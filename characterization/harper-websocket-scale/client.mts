@@ -65,7 +65,7 @@ const stats = {
 };
 
 const sockets: WebSocket[] = [];
-// source addresses are assigned over every connection this process opens, not per command
+// counts every connection this process opens, so source addresses fill in order across commands
 let connectionsOpenedHere = 0;
 
 function nowMs() {
@@ -213,6 +213,7 @@ function makePayload(bytes: number, seq: number) {
 }
 
 let publisherSocket: WebSocket | undefined;
+let putAgent: http.Agent | undefined;
 function connectPublisher(cmd: PublishCommand): Promise<WebSocket> {
 	return new Promise((resolve, reject) => {
 		const ws = new WebSocket(`ws://${cmd.host}:${cmd.port}/mqtt`, ['mqtt'], {
@@ -227,6 +228,7 @@ function connectPublisher(cmd: PublishCommand): Promise<WebSocket> {
 		ws.on('open', () => {
 			const parser = mqttPacket.parser({ protocolVersion: 4 });
 			ws.on('message', (data: Buffer) => parser.parse(data));
+			parser.on('error', reject);
 			parser.on('packet', (packet: any) => packet.cmd === 'connack' && resolve(ws));
 			ws.send(
 				mqttPacket.generate({
@@ -248,6 +250,7 @@ async function publish(cmd: PublishCommand) {
 		publisherSocket ??= await connectPublisher(cmd);
 		const ws = publisherSocket;
 		send = (topic, seq) => {
+			if (ws.readyState !== WebSocket.OPEN) throw new Error('publisher connection closed mid-rate');
 			ws.send(
 				mqttPacket.generate({
 					cmd: 'publish',
@@ -259,7 +262,8 @@ async function publish(cmd: PublishCommand) {
 			);
 		};
 	} else {
-		const agent = new http.Agent({ keepAlive: true, maxSockets: 64 });
+		putAgent ??= new http.Agent({ keepAlive: true, maxSockets: 64 });
+		const agent = putAgent;
 		send = (topic, seq) => {
 			const body = makePayload(cmd.payloadBytes, seq);
 			const req = http.request(
