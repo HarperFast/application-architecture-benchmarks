@@ -1,9 +1,6 @@
 /**
- * Load-generator child process for benchmarks/ws-scale/run.mts. Driven over IPC by the orchestrator.
- *
- * Holds many WebSocket connections with as little client-side state as possible (raw `ws` plus
- * mqtt-packet rather than mqtt.js) so one process can hold tens of thousands of connections.
- * Also acts as the publisher: MQTT publishes over one WebSocket, or REST PUTs.
+ * Load-generator child process for run.mts, driven over IPC. Holds connections with raw `ws` plus
+ * mqtt-packet so one process can hold tens of thousands of them; also publishes (MQTT or REST PUT).
  */
 import WebSocket from 'ws';
 import http from 'node:http';
@@ -16,7 +13,7 @@ interface ConnectCommand {
 	host: string;
 	port: number;
 	protocol: Protocol;
-	/** global index of this process's first connection; topic assignment is by global index */
+	/** global index of this command's first connection: topics and client ids are assigned by global index */
 	startIndex: number;
 	count: number;
 	subsPerConn: number;
@@ -25,9 +22,8 @@ interface ConnectCommand {
 	concurrency: number;
 	auth: string;
 	keepalive: number;
-	/** per-worker Unix sockets to spread connections over (as a TLS-terminating proxy would), instead of TCP */
 	udsPaths?: string[];
-	/** 0 = read normally; otherwise this fraction of connections pause their socket (slow consumers) */
+	/** this fraction of connections stop reading once subscribed (slow consumers) */
 	slowFraction?: number;
 }
 
@@ -37,7 +33,8 @@ interface PublishCommand {
 	port: number;
 	mode: 'mqtt' | 'put';
 	topics: number;
-	/** first topic to publish to; topics are cycled from here */
+	/** subscriptions spread over the topics: topic t has floor(K/T) subscribers, plus one when t < K mod T */
+	subscriptions: number;
 	topicOffset: number;
 	rate: number;
 	payloadBytes: number;
@@ -48,6 +45,7 @@ interface PublishCommand {
 const PORTS_PER_SOURCE_IP = 25_000;
 const HIST_SCALE = 8; // buckets per power of two of microseconds
 const HIST_SIZE = HIST_SCALE * 32;
+const TIMESTAMP_FIELD = Buffer.from('"t":');
 
 const stats = {
 	connected: 0,
@@ -56,26 +54,37 @@ const stats = {
 	subscribed: 0,
 	received: 0,
 	receivedBytes: 0,
+	latencyMisses: 0,
 	published: 0,
 	publishErrors: 0,
 	publishCompleted: 0,
+	expectedDeliveries: 0,
 	latencyHist: new Array<number>(HIST_SIZE).fill(0),
 	lastError: '',
 	closeCodes: {} as Record<string, number>,
 };
 
 const sockets: WebSocket[] = [];
+// source addresses are assigned over every connection this process opens, not per command
+let connectionsOpenedHere = 0;
 
 function nowMs() {
 	return performance.timeOrigin + performance.now();
 }
 
 function recordLatency(buf: Buffer) {
-	// every payload starts its JSON with "t":<epoch ms> near the front (after id for records)
-	const head = buf.toString('latin1', 0, Math.min(buf.length, 80));
-	const match = /"t":([\d.]+)/.exec(head);
-	if (!match) return;
-	const us = Math.max(0, (nowMs() - Number(match[1])) * 1000);
+	const at = buf.indexOf(TIMESTAMP_FIELD);
+	if (at < 0) {
+		stats.latencyMisses++;
+		return;
+	}
+	const start = at + TIMESTAMP_FIELD.length;
+	const sentAt = parseFloat(buf.toString('latin1', start, Math.min(buf.length, start + 24)));
+	if (!(sentAt > 0)) {
+		stats.latencyMisses++;
+		return;
+	}
+	const us = Math.max(0, (nowMs() - sentAt) * 1000);
 	stats.latencyHist[Math.min(HIST_SIZE - 1, Math.floor(Math.log2(us + 1) * HIST_SCALE))]++;
 }
 
@@ -85,9 +94,9 @@ function topicFor(connIndex: number, sub: number, subsPerConn: number, topics: n
 
 function openConnection(cmd: ConnectCommand, index: number): Promise<void> {
 	const globalIndex = cmd.startIndex + index;
-	const localAddress = cmd.sourceIps[Math.floor(index / PORTS_PER_SOURCE_IP) % cmd.sourceIps.length];
+	const localAddress = cmd.sourceIps[Math.floor(connectionsOpenedHere++ / PORTS_PER_SOURCE_IP) % cmd.sourceIps.length];
 	const path = cmd.protocol === 'mqtt' ? '/mqtt' : `/Bench/${topicFor(globalIndex, 0, 1, cmd.topics)}`;
-	const slow = cmd.slowFraction ? index % Math.round(1 / cmd.slowFraction) === 0 : false;
+	const slow = cmd.slowFraction ? globalIndex % Math.round(1 / cmd.slowFraction) === 0 : false;
 	return new Promise((resolve) => {
 		const url = cmd.udsPaths?.length
 			? `ws+unix:${cmd.udsPaths[globalIndex % cmd.udsPaths.length]}:${path}`
@@ -98,29 +107,30 @@ function openConnection(cmd: ConnectCommand, index: number): Promise<void> {
 			headers: { authorization: cmd.auth },
 			handshakeTimeout: 60_000,
 		});
+		let opened = false;
 		let settled = false;
 		const done = () => {
-			if (!settled) {
-				settled = true;
-				resolve();
-			}
+			if (settled) return;
+			settled = true;
+			if (slow && opened) (ws as any)._socket.pause();
+			resolve();
 		};
 		ws.on('error', (error) => {
-			if (!settled) stats.failed++;
+			if (!opened) stats.failed++;
 			stats.lastError = error.message;
 			done();
 		});
 		ws.on('close', (code) => {
-			if (settled) {
+			if (opened) {
 				stats.closed++;
 				stats.closeCodes[code] = (stats.closeCodes[code] ?? 0) + 1;
 			}
 			done();
 		});
 		ws.on('open', () => {
+			opened = true;
 			stats.connected++;
 			sockets.push(ws);
-			if (slow) (ws as any)._socket.pause();
 			if (cmd.protocol === 'ws') {
 				stats.subscribed++;
 				ws.on('message', (data: Buffer) => {
@@ -163,18 +173,24 @@ function openConnection(cmd: ConnectCommand, index: number): Promise<void> {
 					protocolId: 'MQTT',
 					protocolVersion: 4,
 					clean: true,
-					clientId: `b${process.pid}-${index}`,
+					clientId: `b${cmd.startIndex}-${globalIndex}`,
 					keepalive: cmd.keepalive,
 				} as any)
 			);
 			if (cmd.keepalive > 0) {
-				// jitter so pings don't arrive in lockstep
+				// the server drops a client silent for 1.5 × keepalive: ping every 0.75 × keepalive, first ping jittered within that
 				const ping = mqttPacket.generate({ cmd: 'pingreq' } as any);
 				const period = cmd.keepalive * 750;
-				setTimeout(() => {
-					const timer = setInterval(() => ws.readyState === WebSocket.OPEN && ws.send(ping), period);
-					ws.on('close', () => clearInterval(timer));
+				const sendPing = () => ws.readyState === WebSocket.OPEN && ws.send(ping);
+				let interval: NodeJS.Timeout | undefined;
+				const first = setTimeout(() => {
+					sendPing();
+					interval = setInterval(sendPing, period);
 				}, Math.random() * period);
+				ws.on('close', () => {
+					clearTimeout(first);
+					clearInterval(interval);
+				});
 			}
 		});
 	});
@@ -188,36 +204,49 @@ async function connectAll(cmd: ConnectCommand) {
 	await Promise.all(Array.from({ length: cmd.concurrency }, worker));
 }
 
+let padding = '';
 function makePayload(bytes: number, seq: number) {
 	const prefix = `{"t":${nowMs().toFixed(3)},"s":${seq},"p":"`;
-	return prefix + 'x'.repeat(Math.max(0, bytes - prefix.length - 2)) + '"}';
+	const padLength = Math.max(0, bytes - prefix.length - 2);
+	if (padding.length < padLength) padding = 'x'.repeat(padLength);
+	return prefix + padding.slice(0, padLength) + '"}';
+}
+
+let publisherSocket: WebSocket | undefined;
+function connectPublisher(cmd: PublishCommand): Promise<WebSocket> {
+	return new Promise((resolve, reject) => {
+		const ws = new WebSocket(`ws://${cmd.host}:${cmd.port}/mqtt`, ['mqtt'], {
+			perMessageDeflate: false,
+			headers: { authorization: cmd.auth },
+		});
+		ws.on('error', reject);
+		ws.on('close', (code) => {
+			publisherSocket = undefined;
+			reject(new Error(`publisher connection closed (${code}) before CONNACK`));
+		});
+		ws.on('open', () => {
+			const parser = mqttPacket.parser({ protocolVersion: 4 });
+			ws.on('message', (data: Buffer) => parser.parse(data));
+			parser.on('packet', (packet: any) => packet.cmd === 'connack' && resolve(ws));
+			ws.send(
+				mqttPacket.generate({
+					cmd: 'connect',
+					protocolId: 'MQTT',
+					protocolVersion: 4,
+					clean: true,
+					clientId: `pub${process.pid}`,
+					keepalive: 0,
+				} as any)
+			);
+		});
+	});
 }
 
 async function publish(cmd: PublishCommand) {
 	let send: (topic: number, seq: number) => void;
 	if (cmd.mode === 'mqtt') {
-		const ws = new WebSocket(`ws://${cmd.host}:${cmd.port}/mqtt`, ['mqtt'], {
-			perMessageDeflate: false,
-			headers: { authorization: cmd.auth },
-		});
-		await new Promise<void>((resolve, reject) => {
-			ws.on('error', reject);
-			ws.on('open', () => {
-				const parser = mqttPacket.parser({ protocolVersion: 4 });
-				ws.on('message', (data: Buffer) => parser.parse(data));
-				parser.on('packet', (packet: any) => packet.cmd === 'connack' && resolve());
-				ws.send(
-					mqttPacket.generate({
-						cmd: 'connect',
-						protocolId: 'MQTT',
-						protocolVersion: 4,
-						clean: true,
-						clientId: `pub${process.pid}`,
-						keepalive: 0,
-					} as any)
-				);
-			});
-		});
+		publisherSocket ??= await connectPublisher(cmd);
+		const ws = publisherSocket;
 		send = (topic, seq) => {
 			ws.send(
 				mqttPacket.generate({
@@ -228,7 +257,6 @@ async function publish(cmd: PublishCommand) {
 					retain: false,
 				} as any)
 			);
-			stats.published++;
 		};
 	} else {
 		const agent = new http.Agent({ keepAlive: true, maxSockets: 64 });
@@ -244,7 +272,7 @@ async function publish(cmd: PublishCommand) {
 					headers: {
 						'content-type': 'application/json',
 						'content-length': Buffer.byteLength(body),
-						'authorization': cmd.auth,
+						authorization: cmd.auth,
 					},
 				},
 				(res) => {
@@ -255,37 +283,43 @@ async function publish(cmd: PublishCommand) {
 			);
 			req.on('error', () => stats.publishErrors++);
 			req.end(body);
-			stats.published++;
 		};
 	}
+	const baseSubscribers = Math.floor(cmd.subscriptions / cmd.topics);
+	const extraSubscribers = cmd.subscriptions % cmd.topics;
 	const TICK_MS = 5;
 	const start = performance.now();
 	let sent = 0;
-	let topic = 0;
+	let next = cmd.topicOffset;
 	while (performance.now() - start < cmd.durationMs) {
 		const target = Math.floor(((performance.now() - start) / 1000) * cmd.rate);
-		while (sent < target) send((cmd.topicOffset + topic++) % cmd.topics, sent++);
+		while (sent < target) {
+			const topic = next++ % cmd.topics;
+			send(topic, sent++);
+			stats.published++;
+			stats.expectedDeliveries += baseSubscribers + (topic < extraSubscribers ? 1 : 0);
+		}
 		await new Promise((resolve) => setTimeout(resolve, TICK_MS));
 	}
 }
 
 process.on('message', async (message: any) => {
-	switch (message.cmd) {
-		case 'connect':
-			await connectAll(message);
-			process.send!({ reply: 'connect', ...snapshot() });
-			break;
-		case 'publish':
-			await publish(message);
-			process.send!({ reply: 'publish', ...snapshot() });
-			break;
-		case 'stats':
-			process.send!({ reply: 'stats', ...snapshot() });
-			break;
-		case 'close':
-			for (const ws of sockets) ws.terminate();
-			process.send!({ reply: 'close', ...snapshot() });
-			setTimeout(() => process.exit(0), 100);
+	try {
+		switch (message.cmd) {
+			case 'connect':
+				await connectAll(message);
+				break;
+			case 'publish':
+				await publish(message);
+				break;
+			case 'close':
+				for (const ws of sockets) ws.terminate();
+				publisherSocket?.terminate();
+				setTimeout(() => process.exit(0), 100);
+		}
+		process.send!({ reply: message.cmd, ...snapshot() });
+	} catch (error) {
+		process.send!({ reply: message.cmd, error: (error as Error).message });
 	}
 });
 

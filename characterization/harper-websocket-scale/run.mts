@@ -22,7 +22,7 @@ import { parseArgs } from 'node:util';
 import { fork, execFileSync, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statfsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { availableParallelism, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 import http from 'node:http';
 import {
@@ -41,54 +41,71 @@ const HIST_SCALE = 8;
 
 const { values: args } = parseArgs({
 	options: {
-		'scenario': { type: 'string', default: 'conns' },
-		'protocol': { type: 'string', default: 'mqtt' },
-		'threads': { type: 'string', default: '8' },
+		scenario: { type: 'string', default: 'conns' },
+		protocol: { type: 'string', default: 'mqtt' },
+		threads: { type: 'string', default: '8' },
 		// defaults: Harper on the first --threads CPUs, load generators on the rest
 		'harper-cpus': { type: 'string' },
 		'client-cpus': { type: 'string' },
-		'clients': { type: 'string', default: '8' },
+		clients: { type: 'string', default: '8' },
 		'source-ips': { type: 'string', default: '16' },
-		'steps': { type: 'string', default: '10000,25000,50000' },
-		'conns': { type: 'string', default: '10000' },
-		'subs': { type: 'string', default: '1' },
-		'topics': { type: 'string', default: '1' },
-		'rates': { type: 'string', default: '1,10,100' },
-		'payload': { type: 'string', default: '200' },
-		'publish': { type: 'string', default: 'mqtt' },
-		'duration': { type: 'string', default: '20' },
-		'settle': { type: 'string', default: '15' },
-		'keepalive': { type: 'string', default: '60' },
-		'concurrency': { type: 'string', default: '100' },
+		steps: { type: 'string', default: '10000,25000,50000' },
+		conns: { type: 'string', default: '10000' },
+		subs: { type: 'string', default: '1' },
+		topics: { type: 'string', default: '1' },
+		rates: { type: 'string', default: '1,10,100' },
+		payload: { type: 'string', default: '200' },
+		publish: { type: 'string', default: 'mqtt' },
+		duration: { type: 'string', default: '20' },
+		settle: { type: 'string', default: '15' },
+		keepalive: { type: 'string', default: '60' },
+		concurrency: { type: 'string', default: '100' },
 		'slow-fraction': { type: 'string', default: '0' },
 		// publishing processes (and, for MQTT, connections) the rate is split across
-		'publishers': { type: 'string', default: '1' },
-		'uws': { type: 'boolean', default: false },
+		publishers: { type: 'string', default: '1' },
+		uws: { type: 'boolean', default: false },
 		// another build's dist/bin/harper.js, for A/B runs of a change under the same harness
 		'harper-bin': { type: 'string', default: HARPER_BIN },
 		// subscribers connect over Harper's per-worker Unix socket mirrors, as a TLS-terminating proxy would
-		'uds': { type: 'boolean', default: false },
+		uds: { type: 'boolean', default: false },
 		'log-level': { type: 'string', default: 'warn' },
 		// CPU-profile every worker for this many seconds, starting 5s into the first fanout rate or at
 		// the start of the last conns step's settle window; profiles land in --profile-dir
-		'profile': { type: 'string' },
+		profile: { type: 'string' },
 		'profile-dir': { type: 'string', default: join(tmpdir(), 'ws-scale-profile') },
 		'harper-env': { type: 'string', multiple: true, default: [] },
-		'engine': { type: 'string', default: 'rocksdb' },
-		'label': { type: 'string', default: '' },
-		'out': { type: 'string' },
+		engine: { type: 'string', default: 'rocksdb' },
+		label: { type: 'string', default: '' },
+		out: { type: 'string' },
 	},
 });
 
 const threads = Number(args.threads);
-const cpuCount = availableParallelism();
-if (cpuCount <= threads) throw new Error(`need more than --threads=${threads} CPUs to keep load generators off Harper's CPUs`);
-args['harper-cpus'] ??= `0-${threads - 1}`;
-args['client-cpus'] ??= `${threads}-${cpuCount - 1}`;
+function allowedCpus() {
+	const list = /Cpus_allowed_list:\s*(\S+)/.exec(readFileSync('/proc/self/status', 'utf8'))![1];
+	return list.split(',').flatMap((range) => {
+		const [from, to = from] = range.split('-').map(Number);
+		return Array.from({ length: to - from + 1 }, (_, i) => from + i);
+	});
+}
+const cpus = allowedCpus();
+if (cpus.length <= threads)
+	throw new Error(`need more than --threads=${threads} CPUs to keep load generators off Harper's CPUs`);
+args['harper-cpus'] ??= cpus.slice(0, threads).join(',');
+args['client-cpus'] ??= cpus.slice(threads).join(',');
 const firstHarperCpu = Number(/^\d+/.exec(args['harper-cpus']!)![0]);
-const cpufreq = `/sys/devices/system/cpu/cpu${firstHarperCpu}/cpufreq/scaling_max_freq`;
-// recorded with every result so CPU time can be normalized to cycles; pin it (e.g. cpupower frequency-set -u) for stable numbers
-const cpuMaxMHz = existsSync(cpufreq) ? Number(readFileSync(cpufreq, 'utf8')) / 1000 : undefined;
+function cpufreqMHz(file: string) {
+	const path = `/sys/devices/system/cpu/cpu${firstHarperCpu}/cpufreq/${file}`;
+	return existsSync(path) ? Number(readFileSync(path, 'utf8')) / 1000 : undefined;
+}
+// cycle-normalized fields assume the clock is pinned: min and max both set to one frequency
+const cpuMaxMHz = cpufreqMHz('scaling_max_freq');
+const cpuMinMHz = cpufreqMHz('scaling_min_freq');
+const clockPinned = cpuMaxMHz !== undefined && cpuMaxMHz === cpuMinMHz;
+if (!clockPinned)
+	console.warn(
+		`CPU clock is not pinned (min ${cpuMinMHz ?? '?'} MHz, max ${cpuMaxMHz ?? '?'} MHz); cpuKCyclesPer* fields are omitted`
+	);
 const installParent = process.env.HARPER_INTEGRATION_TEST_INSTALL_PARENT_DIR || tmpdir();
 if (statfsSync(installParent).type === TMPFS_MAGIC)
 	throw new Error(
@@ -98,6 +115,15 @@ const clientCount = Number(args.clients);
 const protocol = args.protocol as 'mqtt' | 'ws';
 const subs = protocol === 'ws' ? 1 : Number(args.subs);
 const topics = Number(args.topics);
+if (subs > topics) throw new Error(`--subs=${subs} needs at least as many --topics, or a connection repeats a topic`);
+if (args.uds) {
+	// Linux caps a Unix socket path at 107 bytes, and Harper skips (Node) or fails to start (uWS) a longer mirror
+	const longestPath = join(installParent, 'harper-integration-test-XXXXXX', 'sockets', `${threads - 1}-9927.sock`);
+	if (Buffer.byteLength(longestPath) > 107)
+		throw new Error(
+			`UDS mirror paths under ${installParent} would exceed the 107-byte limit; set HARPER_INTEGRATION_TEST_INSTALL_PARENT_DIR to a shorter directory`
+		);
+}
 const sourceIps = Array.from({ length: Number(args['source-ips']) }, (_, i) => `127.0.1.${i + 1}`);
 
 function cpuTicks(pid: number) {
@@ -130,18 +156,28 @@ async function heapMB() {
 
 class Client {
 	child: ChildProcess;
-	pending = new Map<string, (value: any) => void>();
+	pending = new Map<string, { resolve: (value: any) => void; reject: (error: Error) => void }>();
+	exited = false;
 	constructor() {
 		this.child = fork(CLIENT, [], { execArgv: ['--max-old-space-size=8192'], stdio: 'inherit' });
 		pin(this.child.pid!, args['client-cpus']!);
 		this.child.on('message', (message: any) => {
-			this.pending.get(message.reply)?.(message);
+			const pending = this.pending.get(message.reply);
 			this.pending.delete(message.reply);
+			if (message.error) pending?.reject(new Error(`load generator ${message.reply} failed: ${message.error}`));
+			else pending?.resolve(message);
+		});
+		this.child.on('exit', (code, signal) => {
+			this.exited = true;
+			for (const { reject } of this.pending.values())
+				reject(new Error(`load generator exited (${signal ?? code}) with a request pending`));
+			this.pending.clear();
 		});
 	}
 	request(message: any): Promise<any> {
-		return new Promise((resolve) => {
-			this.pending.set(message.cmd, resolve);
+		if (this.exited) return Promise.reject(new Error('load generator has exited'));
+		return new Promise((resolve, reject) => {
+			this.pending.set(message.cmd, { resolve, reject });
 			this.child.send(message);
 		});
 	}
@@ -181,7 +217,8 @@ function percentiles(hist: number[], ps: number[]) {
 const results: any[] = [];
 function report(row: Record<string, unknown>) {
 	row.cpuMaxMHz = cpuMaxMHz;
-	if (cpuMaxMHz) {
+	row.clockPinned = clockPinned;
+	if (clockPinned) {
 		for (const [key, value] of Object.entries(row)) {
 			if (key.startsWith('cpuUsPer') && typeof value === 'number')
 				row[key.replace('cpuUsPer', 'cpuKCyclesPer')] = (value * cpuMaxMHz) / 1000;
@@ -211,7 +248,7 @@ async function precreateRecords(host: string, port: number, auth: string) {
 						path: `/Bench/${id}`,
 						method: 'PUT',
 						agent,
-						headers: { 'content-type': 'application/json', 'authorization': auth },
+						headers: { 'content-type': 'application/json', authorization: auth },
 					},
 					(res) => {
 						res.resume();
@@ -241,8 +278,10 @@ async function main() {
 	}
 	const profileDir = args['profile-dir']!;
 	if (args.profile) {
-		rmSync(profileDir, { recursive: true, force: true });
 		mkdirSync(profileDir, { recursive: true });
+		for (const file of readdirSync(profileDir)) {
+			if (file === 'start' || /^thread-\d+\.cpuprofile$/.test(file)) rmSync(join(profileDir, file));
+		}
 		env.WS_SCALE_PROFILE_DIR = profileDir;
 		(harperConfig.threads as any).preloadRequire = join(import.meta.dirname, 'profile-preload.cjs');
 	}
@@ -257,38 +296,35 @@ async function main() {
 		env,
 		startupTimeoutMs: 120_000,
 	});
-	const harperPid = ctx.harper.process.pid;
-	pin(harperPid, args['harper-cpus']!);
-	const { hostname: host, port } = new URL(ctx.harper.httpURL);
-	const auth = 'Basic ' + Buffer.from(`${ctx.harper.admin.username}:${ctx.harper.admin.password}`).toString('base64');
-	const socketsDir = join(ctx.harper.dataRootDir, 'sockets');
-	let udsPaths: string[] | undefined;
-	if (args.uds) {
-		// Linux caps a Unix socket path at 107 bytes; Harper skips (Node) or fails (uWS) a longer mirror
-		const longestPath = join(socketsDir, `${threads - 1}-9927.sock`);
-		if (longestPath.length > 107)
-			throw new Error(
-				`UDS mirror path ${longestPath} is ${longestPath.length} bytes (limit 107); set HARPER_INTEGRATION_TEST_INSTALL_PARENT_DIR to a shorter directory`
-			);
-		for (let waited = 0; ; waited += 250) {
-			udsPaths = readdirSync(socketsDir)
-				.filter((file) => /^\d+-.*9927\.sock$/.test(file))
-				.map((file) => join(socketsDir, file));
-			if (udsPaths.length >= threads) break;
-			if (waited > 30_000) throw new Error(`only ${udsPaths.length} of ${threads} UDS mirrors bound in ${socketsDir}`);
-			await delay(250);
-		}
-	}
-	if (args.uds) console.log(`UDS mirrors: ${udsPaths!.length}`);
-	console.log(
-		`Harper pid=${harperPid} at ${ctx.harper.httpURL} threads=${threads} cpus=${args['harper-cpus']} uws=${args.uws}`
-	);
-
-	const clients = Array.from({ length: clientCount }, () => new Client());
-	const clientStats = async () => sumStats(await Promise.all(clients.map((c) => c.request({ cmd: 'stats' }))));
-	const clientTicks = () => clients.reduce((sum, c) => sum + cpuTicks(c.child.pid!), 0);
-
+	const clients: Client[] = [];
+	const publishers: Client[] = [];
 	try {
+		const harperPid = ctx.harper.process.pid;
+		pin(harperPid, args['harper-cpus']!);
+		const { hostname: host, port } = new URL(ctx.harper.httpURL);
+		const auth = 'Basic ' + Buffer.from(`${ctx.harper.admin.username}:${ctx.harper.admin.password}`).toString('base64');
+		const socketsDir = join(ctx.harper.dataRootDir, 'sockets');
+		let udsPaths: string[] | undefined;
+		if (args.uds) {
+			for (let waited = 0; ; waited += 250) {
+				udsPaths = readdirSync(socketsDir)
+					.filter((file) => /^\d+-.*9927\.sock$/.test(file))
+					.map((file) => join(socketsDir, file));
+				if (udsPaths.length >= threads) break;
+				if (waited > 30_000)
+					throw new Error(`only ${udsPaths.length} of ${threads} UDS mirrors bound in ${socketsDir}`);
+				await delay(250);
+			}
+		}
+		if (args.uds) console.log(`UDS mirrors: ${udsPaths!.length}`);
+		console.log(
+			`Harper pid=${harperPid} at ${ctx.harper.httpURL} threads=${threads} cpus=${args['harper-cpus']} uws=${args.uws}`
+		);
+
+		for (let i = 0; i < clientCount; i++) clients.push(new Client());
+		const clientStats = async () => sumStats(await Promise.all(clients.map((c) => c.request({ cmd: 'stats' }))));
+		const clientTicks = () => clients.reduce((sum, c) => sum + cpuTicks(c.child.pid!), 0);
+
 		await precreateRecords(host, Number(port), auth);
 		await delay(3000);
 		const baseRss = rssMB(harperPid);
@@ -298,6 +334,7 @@ async function main() {
 		const openTo = async (target: number) => {
 			const add = target - opened;
 			const per = Math.ceil(add / clientCount);
+			const connected0 = (await clientStats()).connected;
 			const ticks0 = cpuTicks(harperPid);
 			const start = performance.now();
 			await Promise.all(
@@ -312,7 +349,6 @@ async function main() {
 						count,
 						subsPerConn: subs,
 						topics,
-						// each client process gets its own slice of source addresses
 						sourceIps: sourceIps.filter((_, j) => j % clientCount === i),
 						concurrency: Number(args.concurrency),
 						auth,
@@ -323,8 +359,9 @@ async function main() {
 				})
 			);
 			const seconds = (performance.now() - start) / 1000;
+			const cpuSeconds = (cpuTicks(harperPid) - ticks0) / CLK_TCK;
 			opened = target;
-			return { seconds, cpuSeconds: (cpuTicks(harperPid) - ticks0) / CLK_TCK, added: add };
+			return { seconds, cpuSeconds, added: (await clientStats()).connected - connected0 };
 		};
 
 		if (args.scenario === 'conns') {
@@ -373,11 +410,13 @@ async function main() {
 				`opened ${stats.open} (failed ${stats.failed}) subscribed ${stats.subscribed} in ${ramp.seconds.toFixed(1)}s; rss=${rssMB(harperPid).toFixed(0)}MB`
 			);
 			const subscribersPerTopic = stats.subscribed / topics;
-			const publishers = Array.from({ length: Number(args.publishers) }, () => new Client());
+			for (let i = 0; i < Number(args.publishers); i++) publishers.push(new Client());
 			const publisherTicks = () => publishers.reduce((sum, p) => sum + cpuTicks(p.child.pid!), 0);
 			const durationMs = Number(args.duration) * 1000;
+			// publisher stats are cumulative across rates
 			let publishedTotal = 0;
-			let completedTotal = 0; // publisher stats are cumulative across rates
+			let completedTotal = 0;
+			let expectedTotal = 0;
 			for (const rate of args.rates!.split(',').map(Number)) {
 				const before = await clientStats();
 				const harper0 = cpuTicks(harperPid);
@@ -395,6 +434,7 @@ async function main() {
 								port: Number(port),
 								mode: args.publish,
 								topics,
+								subscriptions: stats.subscribed,
 								topicOffset: i,
 								rate: rate / publishers.length,
 								payloadBytes: Number(args.payload),
@@ -404,15 +444,21 @@ async function main() {
 						)
 					)
 				);
-				// let in-flight deliveries land; stop early once the count stops moving
+				// rates are measured to the last delivery, not to when the drain check notices it stopped
 				let last = -1;
-				for (let i = 0; i < 30; i++) {
+				let lastDelivery = performance.now();
+				let drainTruncated = true;
+				for (let i = 0; i < 60; i++) {
 					await delay(1000);
 					stats = await clientStats();
-					if (stats.received === last) break;
+					if (stats.received === last) {
+						drainTruncated = false;
+						break;
+					}
 					last = stats.received;
+					lastDelivery = performance.now();
 				}
-				const seconds = (performance.now() - start) / 1000;
+				const seconds = Math.max(durationMs, lastDelivery - start) / 1000;
 				const harperCpu = (cpuTicks(harperPid) - harper0) / CLK_TCK;
 				const clientCpu = (clientTicks() - client0) / CLK_TCK;
 				const publisherCpu = (publisherTicks() - publisher0) / CLK_TCK;
@@ -421,6 +467,8 @@ async function main() {
 				publishedTotal = published.published;
 				const completedDelta = published.publishCompleted - completedTotal;
 				completedTotal = published.publishCompleted;
+				const expected = published.expectedDeliveries - expectedTotal;
+				expectedTotal = published.expectedDeliveries;
 				const hist = stats.latencyHist.map((count: number, i: number) => count - (before.latencyHist[i] ?? 0));
 				const [p50, p99, p999] = percentiles(hist, [0.5, 0.99, 0.999]);
 				report({
@@ -441,12 +489,14 @@ async function main() {
 						putErrors: published.publishErrors,
 					}),
 					deliveredPerSec: delivered / seconds,
-					deliveryRatio: delivered / (publishedCount * subscribersPerTopic),
+					deliveryRatio: delivered / expected,
 					harperCores: harperCpu / seconds,
 					cpuUsPerDelivery: (harperCpu * 1e6) / delivered,
 					clientCores: clientCpu / seconds,
 					publisherCores: publisherCpu / seconds,
 					drainSeconds: seconds - durationMs / 1000,
+					drainTruncated,
+					latencyMisses: stats.latencyMisses - before.latencyMisses,
 					p50ms: p50,
 					p99ms: p99,
 					p999ms: p999,
@@ -456,10 +506,9 @@ async function main() {
 					closeCodes: JSON.stringify(stats.closeCodes ?? {}),
 				});
 			}
-			for (const publisher of publishers) publisher.child.kill();
 		}
 	} finally {
-		await Promise.all(clients.map((c) => c.request({ cmd: 'close' }).catch(() => {})));
+		await Promise.all([...clients, ...publishers].map((c) => c.request({ cmd: 'close' }).catch(() => {})));
 		if (args.out) writeFileSync(args.out, JSON.stringify(results, null, 2));
 		await teardownHarper(ctx);
 	}
