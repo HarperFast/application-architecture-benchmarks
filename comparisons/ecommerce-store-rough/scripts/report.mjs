@@ -33,6 +33,13 @@ const all = files.map((file) => {
 const trials = all.filter((t) => !t.contended);
 const discarded = all.filter((t) => t.contended);
 
+function unchargedVmCores(step) {
+	const cpu = step.cpu;
+	if (!cpu?.machineCoresBusy || cpu.generatorContainerCores === null || cpu.generatorContainerCores === undefined) return null;
+	const target = cpu.perGroup.budget ? cpu.perGroup.budget.cpuUtilization : Object.values(cpu.perGroup).reduce((a, g) => a + g.cpuUtilization, 0);
+	return +(cpu.machineCoresBusy.busy - target - cpu.generatorContainerCores - (cpu.unattributedContainerCores ?? 0)).toFixed(3);
+}
+
 const median = (xs) => {
 	const v = xs.filter((x) => x !== null && x !== undefined && !Number.isNaN(x)).sort((a, b) => a - b);
 	if (!v.length) return null;
@@ -70,6 +77,11 @@ for (const config of configs) {
 				cores: Object.fromEntries(components.map((c) => [c, s.cpu?.perGroup[c]?.cpuUtilization ?? null])),
 				throttledSeconds: Object.fromEntries(components.map((c) => [c, s.cpu?.perGroup[c]?.throttledSeconds ?? null])),
 				machineBusyCores: s.cpu?.machineCoresBusy?.busy ?? null,
+				machineSoftirqCores: s.cpu?.machineCoresBusy?.softirq ?? null,
+				generatorContainerCores: s.cpu?.generatorContainerCores ?? null,
+				// VM CPU no container was charged for: kernel and hypervisor work, much of it network
+				// processing between containers, which the target's cgroup budget does not limit.
+				unchargedVmCores: unchargedVmCores(s),
 			})),
 		})),
 		budget: first.conditions.budget,
@@ -79,7 +91,7 @@ for (const config of configs) {
 
 	out.push(`### ${config}`, '');
 	out.push(`${group.length} uncontended trial(s)${discarded.some((t) => t.config === config) ? ` (${discarded.filter((t) => t.config === config).length} contended trial(s) excluded)` : ''}. Cold start to first 200: ${fmt(group.map((t) => t.summary.conditions.lifecycle?.coldStartFirst200Ms), 0)} ms. Contention at start: ${group.map((t) => t.summary.conditions.contentionAtStart?.busyOtherContainers || 'none').join(', ')}. Host (macOS) cores busy outside the VM, mean per trial: ${group.map((t) => t.host?.nonVmBusyCoresMean ?? '-').join(', ')}.`, '');
-	const header = ['offered rps', 'achieved rps', 'shed', 'p50 ms', 'p99 ms', 'quote p99', 'product p99', 'product hit %', ...components.map((c) => `${c} cores`), 'target CPU ms/req', 'gen CPU'];
+	const header = ['offered rps', 'achieved rps', 'shed', 'p50 ms', 'p99 ms', 'quote p99', 'product p99', 'product hit %', ...components.map((c) => `${c} cores`), 'target CPU ms/req', 'uncharged VM cores', 'gen CPU'];
 	out.push(`| ${header.join(' | ')} |`, `|${header.map(() => '-').join('|')}|`);
 	const rates = first.steps.map((s) => s.offeredRate);
 	for (const rate of rates) {
@@ -100,7 +112,8 @@ for (const config of configs) {
 				fmt(steps.map((s) => (s.productCacheHitRate ?? NaN) * 100)),
 				...components.map((c) => fmt(steps.map((s) => s.cpu?.perGroup[c]?.cpuUtilization), 2) + throttle(c)),
 				fmt(steps.map((s) => s.targetCpuMsPerOk), 3),
-				fmt(steps.map((s) => s.generatorCpuLoad), 2),
+				fmt(steps.map((s) => unchargedVmCores(s)), 2),
+				fmt(steps.map((s) => s.generatorCpuLoad), 2) + (steps.some((s) => s.generatorSaturated) ? ' (gen sat.)' : ''),
 			].join(' | ')} |`
 		);
 	}

@@ -244,12 +244,14 @@ bench() {
 		wait_for_idle
 		"$HERE/scripts/host-load.sh" "$RAW/host-$target-$stamp.txt" & local host_sampler=$!
 		cold_start "$target"
-		[ "$target" = fpr ] && "$CLI" exec "$(ctr postgres)" psql -U store -d store -qAt -c "SELECT pg_stat_statements_reset()" -c "SELECT pg_stat_reset()" >/dev/null
+		if [ "$target" = fpr ]; then
+			"$CLI" exec "$(ctr postgres)" psql -U store -d store -qAt -c "SELECT pg_stat_statements_reset()" -c "SELECT pg_stat_reset()" >/dev/null
+		fi
 		local cgroups="{" sep=""
 		for s in $(services_of "$target"); do cgroups="$cgroups$sep\"$s\":\"$("$CLI" inspect --format '{{.State.CgroupPath}}' "$(ctr "$s")")\""; sep=","; done
 		cgroups="$cgroups}"
 		local budget_cgroup=""
-		[ "$target" = fpr ] && [ "$BUDGET" = shared ] && budget_cgroup="/machine.slice/$BUDGET_CGROUP_PARENT"
+		if [ "$target" = fpr ] && [ "$BUDGET" = shared ]; then budget_cgroup="/machine.slice/$BUDGET_CGROUP_PARENT"; fi
 		local conditions; conditions="$(conditions_json "$target" "$stamp")"
 		compose run --rm -e TARGET="$target" -e CGROUPS="$cgroups" -e BUDGET_CGROUP="$budget_cgroup" \
 			-e CONDITIONS="/results/$(basename "$conditions")" bench -- \
@@ -258,7 +260,7 @@ bench() {
 			--out /results --cold-ms "$COLD_MS" | tee "$RAW/console-$target-$stamp.txt"
 		kill "$host_sampler" 2>/dev/null || true
 		post_run_stats "$target" "$stamp" >/dev/null
-		[ "$target" = fpr ] && audit | tee -a "$RAW/console-$target-$stamp.txt"
+		if [ "$target" = fpr ]; then audit | tee -a "$RAW/console-$target-$stamp.txt"; fi
 	done
 }
 

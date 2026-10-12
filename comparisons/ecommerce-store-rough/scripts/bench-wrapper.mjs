@@ -97,6 +97,9 @@ function foreignUsage() {
 
 function snapshot(label) {
 	const snap = { label, t: performance.now(), wall: Date.now(), machine: readMachine(), foreign: foreignUsage(), groups: {} };
+	// Every container ever on the machine, transient ones included: a parent cgroup keeps the
+	// usage of children that have exited.
+	snap.allContainersUsec = Number(/usage_usec (\d+)/.exec(readFileSync(`${ROOT}/machine.slice/cpu.stat`, 'utf8'))[1]);
 	if (generatorScope) {
 		try {
 			snap.generatorUsec = Number(/usage_usec (\d+)/.exec(readFileSync(`${ROOT}${generatorScope}/cpu.stat`, 'utf8'))[1]);
@@ -187,6 +190,15 @@ function delta(from, to) {
 		if (cores > 0.01) foreign[id] = round(cores, 3);
 	}
 	const generatorCores = from.generatorUsec !== undefined && to.generatorUsec !== undefined ? round((to.generatorUsec - from.generatorUsec) / 1e6 / seconds, 3) : null;
+	// Everything in machine.slice that is neither the target nor the generator: other containers,
+	// including any that started and exited inside the window, plus conmon processes.
+	const targetUsec = groups.budget
+		? to.groups.budget.usageUsec - from.groups.budget.usageUsec
+		: Object.keys(groups).reduce((sum, name) => sum + (to.groups[name].usageUsec - from.groups[name].usageUsec), 0);
+	const unattributedContainerCores = round(
+		(to.allContainersUsec - from.allContainersUsec - targetUsec - ((to.generatorUsec ?? 0) - (from.generatorUsec ?? 0))) / 1e6 / seconds,
+		3
+	);
 	return {
 		windowSeconds: round(seconds, 3),
 		perGroup,
@@ -194,7 +206,8 @@ function delta(from, to) {
 		generatorContainerCores: generatorCores,
 		foreignCores: round(foreignCores, 3),
 		foreignByContainer: foreign,
-		contended: foreignCores > 0.05 || Object.keys(to.foreign).some((id) => from.foreign[id] === undefined),
+		unattributedContainerCores,
+		contended: foreignCores > 0.05 || unattributedContainerCores > 0.05 || Object.keys(to.foreign).some((id) => from.foreign[id] === undefined),
 	};
 }
 
@@ -266,7 +279,7 @@ for (const step of steps) {
 		return pad(g ? `${g.cpuUtilization.toFixed(2)}${g.throttledSeconds > 0 ? ` t${g.throttledSeconds.toFixed(1)}s` : ''}` : '-', 16);
 	});
 	console.log(
-		`${pad(step.offeredRate, 5)} ${pad(step.achievedRate, 9)} ${pad(step.p50, 8)} ${pad(step.p99, 9)} ${pad(step.quote.p99, 9)} ${pad(step.product.p99, 9)} ${pad(step.productCacheHitRate === null ? '-' : (step.productCacheHitRate * 100).toFixed(1) + '%', 7)} ${pad(step.generatorCpuLoad, 6)}  ${cols.join('')} ${pad(step.targetCpuMsPerOk, 10)} ${pad(step.cpu?.machineCoresBusy.busy, 8)} ${pad(step.cpu?.machineCoresBusy.softirq, 8)}${step.cpu?.contended ? `  CONTENDED: other containers ${step.cpu.foreignCores} cores` : ''}`
+		`${pad(step.offeredRate, 5)} ${pad(step.achievedRate, 9)} ${pad(step.p50, 8)} ${pad(step.p99, 9)} ${pad(step.quote.p99, 9)} ${pad(step.product.p99, 9)} ${pad(step.productCacheHitRate === null ? '-' : (step.productCacheHitRate * 100).toFixed(1) + '%', 7)} ${pad(step.generatorCpuLoad, 6)}  ${cols.join('')} ${pad(step.targetCpuMsPerOk, 10)} ${pad(step.cpu?.machineCoresBusy.busy, 8)} ${pad(step.cpu?.machineCoresBusy.softirq, 8)}${step.cpu?.contended ? `  CONTENDED: other containers ${Math.max(step.cpu.foreignCores, step.cpu.unattributedContainerCores)} cores` : ''}`
 	);
 }
 console.log('(per-container columns: cores used over the step window; tN.Ns = seconds spent CPU-throttled; vm busy / softirq: whole podman VM, every container and the generator included)');
