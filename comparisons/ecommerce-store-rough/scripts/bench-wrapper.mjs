@@ -46,8 +46,20 @@ const readNumber = (path, file) => {
 	}
 };
 
+/**
+ * Machine-wide CPU from /proc/stat (not namespaced, so this is the whole podman VM), in seconds.
+ * Kernel network processing (softirq) is not reliably charged to the cgroup that caused it, and a
+ * chatty multi-container stack causes more of it than a single process; recording it per step
+ * shows how much CPU the per-container figures cannot attribute.
+ */
+function readMachine() {
+	const fields = readFileSync('/proc/stat', 'utf8').split('\n')[0].trim().split(/\s+/).slice(1).map(Number);
+	const [user, nice, system, idle, iowait, irq, softirq, steal] = fields.map((ticks) => ticks / 100);
+	return { user: user + nice, system, idle, iowait, irq, softirq, steal };
+}
+
 function snapshot(label) {
-	const snap = { label, t: performance.now(), wall: Date.now(), groups: {} };
+	const snap = { label, t: performance.now(), wall: Date.now(), machine: readMachine(), groups: {} };
 	for (const [name, path] of Object.entries(groups)) {
 		const cpu = readCpu(path);
 		snap.groups[name] = {
@@ -118,7 +130,10 @@ function delta(from, to) {
 			throttledPeriods: b.nrThrottled - a.nrThrottled,
 		};
 	}
-	return { windowSeconds: round(seconds, 3), perGroup };
+	const machine = {};
+	for (const key of Object.keys(to.machine)) machine[key] = round((to.machine[key] - from.machine[key]) / seconds, 3);
+	machine.busy = round(machine.user + machine.system + machine.irq + machine.softirq, 3);
+	return { windowSeconds: round(seconds, 3), perGroup, machineCoresBusy: machine };
 }
 
 const components = Object.keys(groups).filter((name) => name !== 'budget');
@@ -182,15 +197,15 @@ writeFileSync(out, JSON.stringify(summary, null, 2));
 // --- print -------------------------------------------------------------------------------------
 const pad = (v, n) => String(v ?? '-').padStart(n);
 console.log(`\nper-container CPU (cgroup v2) for ${target}:`);
-console.log(`${'rate'.padStart(5)} ${'achieved'.padStart(9)} ${'p50'.padStart(8)} ${'p99'.padStart(9)} ${'q.p99'.padStart(9)} ${'pdp.p99'.padStart(9)} ${'pdpHit'.padStart(7)} ${'genCPU'.padStart(6)}  ${components.map((c) => `${c}`.padStart(16)).join('')} ${'cpu/ok ms'.padStart(10)}`);
+console.log(`${'rate'.padStart(5)} ${'achieved'.padStart(9)} ${'p50'.padStart(8)} ${'p99'.padStart(9)} ${'q.p99'.padStart(9)} ${'pdp.p99'.padStart(9)} ${'pdpHit'.padStart(7)} ${'genCPU'.padStart(6)}  ${components.map((c) => `${c}`.padStart(16)).join('')} ${'cpu/ok ms'.padStart(10)} ${'vm busy'.padStart(8)} ${'softirq'.padStart(8)}`);
 for (const step of steps) {
 	const cols = components.map((c) => {
 		const g = step.cpu?.perGroup[c];
 		return pad(g ? `${g.cpuUtilization.toFixed(2)}${g.throttledSeconds > 0 ? ` t${g.throttledSeconds.toFixed(1)}s` : ''}` : '-', 16);
 	});
 	console.log(
-		`${pad(step.offeredRate, 5)} ${pad(step.achievedRate, 9)} ${pad(step.p50, 8)} ${pad(step.p99, 9)} ${pad(step.quote.p99, 9)} ${pad(step.product.p99, 9)} ${pad(step.productCacheHitRate === null ? '-' : (step.productCacheHitRate * 100).toFixed(1) + '%', 7)} ${pad(step.generatorCpuLoad, 6)}  ${cols.join('')} ${pad(step.targetCpuMsPerOk, 10)}`
+		`${pad(step.offeredRate, 5)} ${pad(step.achievedRate, 9)} ${pad(step.p50, 8)} ${pad(step.p99, 9)} ${pad(step.quote.p99, 9)} ${pad(step.product.p99, 9)} ${pad(step.productCacheHitRate === null ? '-' : (step.productCacheHitRate * 100).toFixed(1) + '%', 7)} ${pad(step.generatorCpuLoad, 6)}  ${cols.join('')} ${pad(step.targetCpuMsPerOk, 10)} ${pad(step.cpu?.machineCoresBusy.busy, 8)} ${pad(step.cpu?.machineCoresBusy.softirq, 8)}`
 	);
 }
-console.log('(per-container columns: cores used over the step window; tN.Ns = seconds spent CPU-throttled)');
+console.log('(per-container columns: cores used over the step window; tN.Ns = seconds spent CPU-throttled; vm busy / softirq: whole podman VM, every container and the generator included)');
 console.log(`summary: ${out}`);

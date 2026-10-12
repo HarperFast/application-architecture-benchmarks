@@ -15,6 +15,10 @@
 --   promotion.categoryKeys    -> tier_keys / category_keys, the dataset's indexable form of the
 --                                eligibility arrays ('*' = unrestricted), GIN-indexed
 
+-- Statement statistics (preloaded by postgresql.conf); used to verify every hot statement is an
+-- index lookup, never by the application.
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+
 DROP TABLE IF EXISTS cart, inventory, variant, product, customer, promotion, rate, location, dataset_manifest CASCADE;
 
 CREATE TABLE location (

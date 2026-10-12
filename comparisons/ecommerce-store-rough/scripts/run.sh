@@ -151,16 +151,26 @@ cold_start() {
 }
 
 # Wait until no container outside this project is busy, so a measurement is not taken under
-# contention from another workload on the same machine. Records what it saw.
+# contention from another workload on the same machine. Records what it saw. Uses instantaneous
+# cgroup counters (scripts/busy.mjs): `podman stats` reports lifetime-average CPU.
+busy_others() {
+	local groups="{" sep="" id name path
+	while read -r id name; do
+		case "$name" in "$PROJECT"-*) continue ;; esac
+		path=$("$CLI" inspect --format '{{.State.CgroupPath}}' "$id" 2>/dev/null) || continue
+		[ -n "$path" ] || continue
+		groups="$groups$sep\"$name\":\"$path\""; sep=","
+	done < <("$CLI" ps --no-trunc --format '{{.ID}} {{.Names}}')
+	groups="$groups}"
+	[ "$groups" = "{}" ] && return 0
+	"$CLI" run --rm -e CGROUPS="$groups" -v /sys/fs/cgroup:/host/cgroup:ro -v "$HERE/scripts:/cmp:ro" \
+		docker.io/library/node:24.21.0-slim node /cmp/busy.mjs
+}
+
 wait_for_idle() {
 	local deadline=$(( $(date +%s) + ${WAIT_FOR_IDLE:-900} )) busy
 	while :; do
-		busy=$("$CLI" stats --no-stream --format json 2>/dev/null | node -e '
-			let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
-				const rows=JSON.parse(s||"[]").filter(r=>!r.name.startsWith(process.argv[1]+"-"));
-				const hot=rows.filter(r=>parseFloat(r.cpu_percent)>5);
-				console.log(hot.map(r=>r.name+"="+r.cpu_percent).join(","));
-			})' "$PROJECT")
+		busy="$(busy_others)"
 		[ -z "$busy" ] && break
 		if [ "$(date +%s)" -gt "$deadline" ]; then say "other containers still busy ($busy); proceeding, recorded as contention"; break; fi
 		say "waiting for other workloads to go idle: $busy"
@@ -233,7 +243,7 @@ bench() {
 		restore "$target"
 		wait_for_idle
 		cold_start "$target"
-		[ "$target" = fpr ] && "$CLI" exec "$(ctr postgres)" psql -U store -d store -qc "SELECT pg_stat_statements_reset(); SELECT pg_stat_reset();" >/dev/null
+		[ "$target" = fpr ] && "$CLI" exec "$(ctr postgres)" psql -U store -d store -qAt -c "SELECT pg_stat_statements_reset()" -c "SELECT pg_stat_reset()" >/dev/null
 		local cgroups="{" sep=""
 		for s in $(services_of "$target"); do cgroups="$cgroups$sep\"$s\":\"$("$CLI" inspect --format '{{.State.CgroupPath}}' "$(ctr "$s")")\""; sep=","; done
 		cgroups="$cgroups}"
