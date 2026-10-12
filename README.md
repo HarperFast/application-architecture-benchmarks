@@ -1,90 +1,72 @@
 # Harper Application Architecture Benchmarks
 
-An open system for benchmarking Harper's collapsed stack application architecture against separated stack architecture and platforms.
+An open project comparing Harper's collapsed application stack with separated stacks and managed platforms. Anyone may reference this work, give feedback, or contribute, including the projects and companies being compared.
 
-The purpose of this being open source is so that the wider community, including the projects and companies we are comparing ourselves against, can openly provide feedback and contribute. Anyone may reference this work, and contributions are accepted.
+**Primary hypothesis:** Harper's collapsed stack architecture is more efficient overall than a generalized separated application architecture.
 
-**Primary Hypothesis**: Harper's collapsed stack architecture is holistically more efficient than a generalized separated application architecture.
+The hypothesis covers any combination of separated services, not one chosen competitor. We implement the same application specification on Harper and a matrix of other technologies. The Harper implementation stays the same while other stacks may swap Postgres for MongoDB, Redis for Memcached, Fastify for Express, and so on.
 
-Generalized separated application architectures means that we aren't targeting just one technology or stack. These benchmarks set out to prove that Harper applications are more efficient than any combination of separated services.
+Each added stack tests whether the hypothesis holds. If a stack beats Harper, the hypothesis is false for that workload. Publish the result, investigate the cause, and restate the hypothesis to match the evidence. See [Reporting results](#reporting-results).
 
-The high-level plan is to implement a single application specification on Harper as well as across a matrix of other technologies. While the Harper implementation will remain the same, the competitive application may swap Postgres for MongoDB, Redis for Memcached, Fastify for Express, etc.
+These comparisons measure the whole application. Individual services may beat Harper in isolated tests; that is a different question.
 
-Every stack added to the matrix is an attempt to break the hypothesis, not to confirm it. It holds while Harper keeps outperforming the combinations tested, and a stack that beats Harper falsifies it for that workload. When that happens the result is published as measured, the cause is investigated, and the hypothesis is restated to match what was actually measured. See [Reporting results](#reporting-results).
-
-Importantly, this work is not meant to isolate the performance of any singular technology. In many cases, lots of the services evaluated here could beat Harper in isolated testing scenarios. The point is we are analyzing the **holistic application experience**.
-
-This repo is the living workspace for the benchmark work. No comparison results are published here. **All results are published in standalone snapshot repositories that reflect the exact state of the applications at the time of testing**. Those repos accept contributions too, but should be focussed on correcting minor details. Making large changes or major version upgrades should likely start here and then a new analysis should be conducted (and thus a new snapshot repo published). This organization keeps everything honest and historically referenceable.
+This repo is the working area. **Comparison results are published only in standalone snapshot repositories containing the exact application state tested.** Those repos accept minor corrections. Large changes or major version upgrades should generally start here, followed by a new analysis and snapshot, so past results remain traceable.
 
 ## Claims, and doing no harm
 
-Most of the technologies measured here are open source projects maintained by communities, not products sold by competitors. That distinction governs how every result is described.
+Most technologies measured here are community-maintained open source projects. That governs how we describe results.
 
-Results are about architectures, never about a project. A published claim compares Harper to an assembled stack — "Harper sustains N% more requests per second than a separated architecture on the same resources" — and never takes the form "Harper is X times faster than Y framework". Claims of that second kind are vetoed. Several of the frameworks in this matrix are supported ways to build on Harper, so a claim against them would be both self-contradictory and hostile to people who have done us no harm.
+Architecture claims compare Harper with an assembled stack: “Harper sustains N% more requests per second than a separated architecture on the same resources.” Claims such as “Harper is X times faster than Y framework” are prohibited. Several frameworks in the matrix are also supported ways to build on Harper; attacking them would contradict that support and harm their communities.
 
-Competitive claims that name a company are legitimate, and they come from platform as a service comparisons, where the thing being measured is a commercial product rather than a community project.
+Claims naming a company come from platform as a service comparisons, which measure commercial products.
 
-Where a benchmark makes an open source project look bad, the first assumption is that we configured it wrong. That is much of why this repo is public and why contributions are accepted from the projects being measured.
+If a result makes an open source project look bad, first assume we configured it wrong. Keeping the work public lets the projects being measured help correct it.
 
 ## Terminology
 
-These words are used precisely throughout this document.
-
-- **Harper Core**: the Harper platform itself (runtime, storage, and APIs). Source at [`harperfast/harper`](github.com/harperfast/harper) and published as `harper` on npm.
-- **Application**: a complete implementation of the [specification below](#specification). Built on Harper it is one process; built on a separated architecture it is several processes.
-- **Stack**: the set of technologies an application is assembled from. Fastify + Postgres + Redis is a stack. Harper is a stack of one.
-- **Platform as a service**: a hosted, managed offering. Fabric is one. So are Supabase, MongoDB Atlas, and Redis Cloud.
-- **Comparison**: one benchmark run pitting a Harper application against one or more applications built on other stacks.
+- **Harper Core**: the platform itself: runtime, storage, and APIs. Source: [`harperfast/harper`](https://github.com/harperfast/harper); npm package: `harper`.
+- **Application**: a complete implementation of the [specification below](#specification). One process on Harper; several on a separated architecture.
+- **Stack**: the technologies used to build an application, such as Fastify + Postgres + Redis. Harper is a stack of one.
+- **Platform as a service**: a hosted, managed offering, such as Fabric, Supabase, MongoDB Atlas, or Redis Cloud.
+- **Comparison**: a benchmark run comparing a Harper application with one or more applications built on other stacks.
 
 ## Application Scope
 
-1. **Ecommerce**: The reference application is an enterprise-level ecommerce store, sized to reflect Harper's existing customer base. Sweeping "store size" as a variable is out of scope; the catalog is fixed at one enterprise scale so that a comparison measures the architecture rather than the dataset. See [Dataset](#dataset).
-
-2. **JavaScript**: Application logic should primarily run on JavaScript. It's fine if some aspects (such as the database or caching layer) are non-Node.js, but the core application logic (like any frontend or backend API pieces) should be Node.js compatible. Harper itself is strictly a Node.js compatible platform. There is little point to comparing to say a Python or .Net backend service if that audience would never build JavaScript on Harper regardless of the performance differences.
-
-3. **Server-side work**: Benchmarks must focus on the parts of the system we actually control. Basically, any server-side work. Anything dominated by static asset delivery, browser rendering, or client-side JavaScript evaluation is out of scope since it's out of the control of the tested systems.
+1. **Ecommerce**: an enterprise store sized to reflect Harper's existing customers. The catalog has one fixed enterprise scale; varying store size is out of scope so comparisons measure architecture rather than dataset differences. See [Dataset](#dataset).
+2. **JavaScript**: application logic should primarily use JavaScript and be Node.js compatible, including frontend and backend API code. Databases and caches may use other runtimes. Harper is strictly Node.js compatible; comparing Python or .NET backends would target developers unlikely to adopt Harper regardless of performance.
+3. **Server-side work**: measure work the tested systems control. Static asset delivery, browser rendering, and client-side JavaScript-dominated workloads are out of scope.
 
 ### Specification
 
-> Note: this will eventually be moved to a separate document likely alongside Harper's golden implementation.
+> This specification will eventually move to a separate document, likely alongside Harper's reference implementation.
 
-The specification is defined by endpoint, in priority order.
+Endpoints are listed in priority order.
 
 #### P0
 
-- `POST /cart/:id/quote` — read cart, then product and variant per line, then inventory per line and fulfillment location, then customer tier and loyalty balance, then eligible promos by tier, SKU, and category. Evaluate stacking, exclusivity, threshold, and BOGO rules in JavaScript, some of which trigger further reads. Then shipping rate by region and total weight, and tax by jurisdiction. Roughly four to five dependent waves, 60 to 150 record reads, and real pricing logic. Every response is unique to the cart.
-- `GET /product/:id?tier=&region=` — the PDP aggregate, for the read-heavy leg. Product, variants, inventory, resolved price, review rollup, related items. Mostly cacheable, but varies by tier and region.
-- **Background writes** — a steady, low-rate stream of inventory and price updates against the same records the read path touches. This is not an endpoint under test and its own latency is not a headline metric. It exists so that caches have to stay coherent with their source of truth.
+- `POST /cart/:id/quote` — read the cart; product and variant per line; inventory per line and fulfillment location; customer tier and loyalty balance; and eligible promotions by tier, SKU, and category. Evaluate stacking, exclusivity, threshold, and BOGO rules in JavaScript, including any further reads they require. Then read shipping rates by region and total weight, and tax by jurisdiction. This requires roughly four to five dependent waves, 60–150 record reads, and pricing logic. Each response is unique to its cart.
+- `GET /product/:id?tier=&region=` — the product detail page (PDP) aggregate: product, variants, inventory, resolved price, review rollup, and related items. This is the read-heavy path: mostly cacheable, but varying by tier and region.
+- **Background writes** — a steady, low-rate stream of inventory and price updates to records used by the read paths. This is not an endpoint under test, and write latency is not a headline metric. The stream requires caches to stay coherent with their source of truth.
 
-Eight tables, two endpoints, one background writer, one seeded dataset, one load generator with a realistic cart-size distribution.
+Eight tables, two endpoints, one background writer, one seeded dataset, and one load generator with a realistic cart-size distribution.
 
-> Reasoning for this P0
-> 
-> An architectural difference only appears where the architecture does work. A request that reads one record and returns it mostly measures Node's HTTP and JSON layers, which every implementation pays for equally. A request that fans out, waits on the result, fans out again, and then computes something is where crossing a process boundary incurs cost.
->
-> The cart quote is also deliberately uncacheable at the response layer: every response is unique to its cart, so no implementation can win by returning a stored response. Entity caches still do their normal job, which is the job real deployments give them.
->
-> The background writes exist for the same reason. A read-only workload lets a separated stack's cache fill once and never invalidate, which is not a cache any real store operates. A steady write stream makes cache coherence a cost the architecture has to actually pay, and keeping data consistent across processes is one of the places a collapsed architecture should show an advantage.
+A single-record request mostly measures Node's HTTP and JSON layers, which all implementations pay for. Dependent reads followed by computation expose the cost of crossing process boundaries. Cart quote responses cannot be cached; entity caching is allowed. Background writes prevent caches from filling once and never invalidating, making cross-process consistency part of the measured cost and a possible advantage for a collapsed stack.
 
 #### Dataset
 
-The dataset is generated once and kept under version control. Every implementation loads the exact same data, so there is no potential variance.
+Generate the dataset once and version it. Every implementation loads exactly the same data.
 
-There is one size: large, reflective of a real Harper customer's catalog. There is no smaller in-memory variant. A dataset that fits entirely in cache is not representative of Harper's normal customer workloads.
+Use one large catalog, representative of a real Harper customer. There is no smaller in-memory benchmark variant: a dataset that fits entirely in cache does not represent Harper's normal customer workloads.
 
 #### Future Work
 
-Storefront UI, auth flows, product listing pages, search, checkout commit, images, and realtime.
-
-> Omitted for now to get preliminary methodology and implementations off the ground.
+Storefront UI, auth flows, product listing pages, search, checkout commit, images, and realtime are deferred until the initial methodology and implementations are established.
 
 ### Conformance
 
-As part of Harper's golden implementation and a detailed specification document, there will exist automated conformance and verification tests. These will likely look like E2E tests so they are implementation agnostic. These should not be the only mechanism for evaluating an implementation for fairness and correctness, but they are a required step.
+The Harper reference implementation and detailed specification will include automated conformance and verification tests, likely implementation-independent E2E tests. Passing them is required but does not by itself establish fairness or correctness. As the specification grows, shared libraries may reduce differences between implementations.
 
-As the application specification grows, we may extrapolate certain parts into a shared library that all implementations can use to minimize differences.
-
-All implementations are built in their own recommended form. Avoid sandbagging by implementing things inefficiently or incorrectly. An assembled stack gets the indexes its database documentation calls for, a cache sized and exercised the way a real deployment would size it, and the configuration its vendor recommends. This is best effort; sometimes the most optimized solution is not well documented. This is why this work is open source. Anyone is welcome to improve implementations at any time.
+Build each implementation as its stack recommends. Use documented database indexes, realistically sized and exercised caches, and vendor-recommended configuration. Do not handicap a stack with inefficient or incorrect code. Optimization guidance is sometimes incomplete, so this is a best-effort requirement and improvements are welcome at any time.
 
 ## Comparison Heuristics
 
