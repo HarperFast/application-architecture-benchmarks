@@ -118,7 +118,7 @@ An agent drives GCP through `gcloud`, not the console, and the organization's se
 - Teardown does not depend on anyone's session either: the self-delete deadline fires regardless.
 - No Application Default Credentials and no service account on the VM: the VM never calls a Google API, and the repositories it clones are public.
 
-Ethan Arrowood owns the project and is its only member to start; others are added on request. An operator needs Compute Admin and IAP-secured Tunnel User on the project (`roles/compute.admin`, `roles/iap.tunnelResourceAccessor`); the owner has both.
+The benchmark maintainer who creates the project owns it and is its only member to start; others are added on request. Who holds access is recorded in internal documentation, not here. An operator needs Compute Admin and IAP-secured Tunnel User on the project (`roles/compute.admin`, `roles/iap.tunnelResourceAccessor`); the owner has both.
 
 ## Host
 
@@ -274,7 +274,7 @@ Made 2026-10-12, before the first session.
 5. **Drift threshold:** 2% from the session median, or three times the session probe's measured spread, whichever is larger.
 6. **Architecture:** C4 (x86-64) is the default. One probe session on C4A (`MACHINE=c4a-standard-16-lssd vm.sh up`, then `host-setup.sh` and `probe-clock.sh`; the default layout uses 8 of its 16 cores) compares its clock behaviour. C4A does not become the default without a further decision.
 7. **Snapshots:** no reuse across sessions; every session re-seeds every target.
-8. **Access and egress:** Ethan Arrowood owns the project and is its only member to start; others are added on request. VMs get an external IPv4 address by default. Where `constraints/compute.vmExternalIpAccess` blocks that, the fallback is `--no-address` plus Cloud NAT on `arch-bench-net`, which `vm.sh` supports and which, like the rest, has not been run.
+8. **Access and egress:** the benchmark maintainer who creates the project owns it and is its only member to start; others are added on request. VMs get an external IPv4 address by default. Where `constraints/compute.vmExternalIpAccess` blocks that, the fallback is `--no-address` plus Cloud NAT on `arch-bench-net`, which `vm.sh` supports and which, like the rest, has not been run.
 
 ## Sources
 
