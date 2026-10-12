@@ -19,7 +19,8 @@
  * CONDITIONS (path to a JSON file of run conditions written by run.sh; merged into the summary).
  */
 import { spawn } from 'node:child_process';
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import { hostname } from 'node:os';
 import { createInterface } from 'node:readline';
 import { join, basename } from 'node:path';
 
@@ -58,8 +59,49 @@ function readMachine() {
 	return { user: user + nice, system, idle, iowait, irq, softirq, steal };
 }
 
+/**
+ * Every OTHER container on the machine: any libpod scope under machine.slice (including inside pod
+ * slices) that is neither a target container nor this generator container. A measurement taken
+ * while something else on the machine is busy is contaminated; this makes that visible per step
+ * instead of assuming the idle check at the start still holds.
+ */
+const targetPaths = new Set(Object.values(groups));
+const selfPrefix = `libpod-${hostname()}`;
+let generatorScope = null;
+function foreignUsage() {
+	const usage = {};
+	const visit = (dir, depth) => {
+		let entries = [];
+		try {
+			entries = readdirSync(`${ROOT}${dir}`);
+		} catch {
+			return;
+		}
+		for (const entry of entries) {
+			const path = `${dir}/${entry}`;
+			if (depth === 0 && entry.startsWith('machine-libpod_pod_') && entry.endsWith('.slice')) visit(path, 1);
+			if (!entry.startsWith('libpod-') || entry.startsWith('libpod-conmon-') || !entry.endsWith('.scope')) continue;
+			if (targetPaths.has(path)) continue;
+			if (entry.startsWith(selfPrefix)) {
+				generatorScope = path;
+				continue;
+			}
+			try {
+				usage[entry.slice(7, 19)] = Number(/usage_usec (\d+)/.exec(readFileSync(`${ROOT}${path}/cpu.stat`, 'utf8'))[1]);
+			} catch {}
+		}
+	};
+	visit('/machine.slice', 0);
+	return usage;
+}
+
 function snapshot(label) {
-	const snap = { label, t: performance.now(), wall: Date.now(), machine: readMachine(), groups: {} };
+	const snap = { label, t: performance.now(), wall: Date.now(), machine: readMachine(), foreign: foreignUsage(), groups: {} };
+	if (generatorScope) {
+		try {
+			snap.generatorUsec = Number(/usage_usec (\d+)/.exec(readFileSync(`${ROOT}${generatorScope}/cpu.stat`, 'utf8'))[1]);
+		} catch {}
+	}
 	for (const [name, path] of Object.entries(groups)) {
 		const cpu = readCpu(path);
 		snap.groups[name] = {
@@ -133,7 +175,27 @@ function delta(from, to) {
 	const machine = {};
 	for (const key of Object.keys(to.machine)) machine[key] = round((to.machine[key] - from.machine[key]) / seconds, 3);
 	machine.busy = round(machine.user + machine.system + machine.irq + machine.softirq, 3);
-	return { windowSeconds: round(seconds, 3), perGroup, machineCoresBusy: machine };
+	// Other containers' CPU over the window (present at both ends; one that started mid-window
+	// counts from its first sample, so this can under-read but never over-read).
+	const foreign = {};
+	let foreignCores = 0;
+	for (const [id, usec] of Object.entries(to.foreign)) {
+		const before = from.foreign[id];
+		if (before === undefined) continue;
+		const cores = (usec - before) / 1e6 / seconds;
+		foreignCores += cores;
+		if (cores > 0.01) foreign[id] = round(cores, 3);
+	}
+	const generatorCores = from.generatorUsec !== undefined && to.generatorUsec !== undefined ? round((to.generatorUsec - from.generatorUsec) / 1e6 / seconds, 3) : null;
+	return {
+		windowSeconds: round(seconds, 3),
+		perGroup,
+		machineCoresBusy: machine,
+		generatorContainerCores: generatorCores,
+		foreignCores: round(foreignCores, 3),
+		foreignByContainer: foreign,
+		contended: foreignCores > 0.05 || Object.keys(to.foreign).some((id) => from.foreign[id] === undefined),
+	};
 }
 
 const components = Object.keys(groups).filter((name) => name !== 'budget');
@@ -184,7 +246,7 @@ if (process.env.CONDITIONS && existsSync(process.env.CONDITIONS)) conditions = J
 const summary = {
 	target,
 	runRecord: basename(runRecordPath),
-	conditions: { ...conditions, harness: record.conditions.harness, dataset: record.conditions.dataset, lifecycle: record.conditions.lifecycle, host: record.conditions.host, caveats: record.conditions.caveats },
+	conditions: { ...conditions, harness: record.conditions.harness, dataset: record.conditions.dataset, lifecycle: { ...conditions.lifecycle, ...record.conditions.lifecycle }, host: record.conditions.host, caveats: record.conditions.caveats },
 	cgroups: { paths: groups, limits },
 	warmup: marks.warmupStart && marks.warmupEnd ? delta(marks.warmupStart, marks.warmupEnd) : null,
 	steps,
@@ -204,7 +266,7 @@ for (const step of steps) {
 		return pad(g ? `${g.cpuUtilization.toFixed(2)}${g.throttledSeconds > 0 ? ` t${g.throttledSeconds.toFixed(1)}s` : ''}` : '-', 16);
 	});
 	console.log(
-		`${pad(step.offeredRate, 5)} ${pad(step.achievedRate, 9)} ${pad(step.p50, 8)} ${pad(step.p99, 9)} ${pad(step.quote.p99, 9)} ${pad(step.product.p99, 9)} ${pad(step.productCacheHitRate === null ? '-' : (step.productCacheHitRate * 100).toFixed(1) + '%', 7)} ${pad(step.generatorCpuLoad, 6)}  ${cols.join('')} ${pad(step.targetCpuMsPerOk, 10)} ${pad(step.cpu?.machineCoresBusy.busy, 8)} ${pad(step.cpu?.machineCoresBusy.softirq, 8)}`
+		`${pad(step.offeredRate, 5)} ${pad(step.achievedRate, 9)} ${pad(step.p50, 8)} ${pad(step.p99, 9)} ${pad(step.quote.p99, 9)} ${pad(step.product.p99, 9)} ${pad(step.productCacheHitRate === null ? '-' : (step.productCacheHitRate * 100).toFixed(1) + '%', 7)} ${pad(step.generatorCpuLoad, 6)}  ${cols.join('')} ${pad(step.targetCpuMsPerOk, 10)} ${pad(step.cpu?.machineCoresBusy.busy, 8)} ${pad(step.cpu?.machineCoresBusy.softirq, 8)}${step.cpu?.contended ? `  CONTENDED: other containers ${step.cpu.foreignCores} cores` : ''}`
 	);
 }
 console.log('(per-container columns: cores used over the step window; tN.Ns = seconds spent CPU-throttled; vm busy / softirq: whole podman VM, every container and the generator included)');
