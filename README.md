@@ -25,46 +25,26 @@ If a result makes an open source project look bad, first assume we configured it
 ## Terminology
 
 - **Harper Core**: the platform itself: runtime, storage, and APIs. Source: [`harperfast/harper`](https://github.com/harperfast/harper); npm package: `harper`.
-- **Application**: a complete implementation of the [specification below](#specification). One process on Harper; several on a separated architecture.
+- **Application**: a complete implementation of the [application specification](https://github.com/HarperFast/ecommerce-store/blob/main/SPEC.md). One process on Harper; several on a separated architecture.
 - **Stack**: the technologies used to build an application, such as Fastify + Postgres + Redis. Harper is a stack of one.
 - **Platform as a service**: a hosted, managed offering, such as Fabric, Supabase, MongoDB Atlas, or Redis Cloud.
 - **Comparison**: a benchmark run comparing a Harper application with one or more applications built on other stacks.
 
 ## Application Scope
 
-1. **Ecommerce**: an enterprise store sized to reflect Harper's existing customers. The catalog has one fixed enterprise scale; varying store size is out of scope so comparisons measure architecture rather than dataset differences. See [Dataset](#dataset).
+1. **Ecommerce**: an enterprise store sized to reflect Harper's existing customers. The catalog has one fixed enterprise scale; varying store size is out of scope so comparisons measure architecture rather than dataset differences. See the [dataset requirements](https://github.com/HarperFast/ecommerce-store/blob/main/SPEC.md#invariants).
 2. **JavaScript**: application logic should primarily use JavaScript and be Node.js compatible, including frontend and backend API code. Databases and caches may use other runtimes. Harper is strictly Node.js compatible; comparing Python or .NET backends would target developers unlikely to adopt Harper regardless of performance.
 3. **Server-side work**: measure work the tested systems control. Workloads dominated by static asset delivery, browser rendering, or client-side JavaScript are out of scope.
 
 ### Specification
 
-> This specification will eventually move to a separate document, likely alongside Harper's reference implementation.
+The stack-neutral application contract lives in [`ecommerce-store/SPEC.md`](https://github.com/HarperFast/ecommerce-store/blob/main/SPEC.md). It defines the endpoints, data model, dataset, caching, background writes, and observability requirements for every implementation.
 
-Endpoints are listed in priority order.
-
-#### P0
-
-- `POST /cart/:id/quote` — read, in order: the cart; product and variant per line; inventory per line and fulfillment location; customer tier and loyalty balance; and eligible promotions by tier, SKU, and category. Evaluate stacking, exclusivity, threshold, and BOGO rules in JavaScript, including any further reads they require. Then read shipping rates by region and total weight, and tax by jurisdiction. This requires roughly four to five dependent waves, 60–150 record reads, and pricing logic. Each response is unique to its cart.
-- `GET /product/:id?tier=&region=` — the product detail page (PDP) aggregate: product, variants, inventory, resolved price, review rollup, and related items. This is the read-heavy path: mostly cacheable, but varying by tier and region.
-- **Background writes** — a steady, low-rate stream of inventory and price updates to records used by the read paths. This is not an endpoint under test, and write latency is not a headline metric. The stream requires caches to stay coherent with their source of truth.
-
-Eight tables, two endpoints, one background writer, one seeded dataset, and one load generator with a realistic cart-size distribution.
-
-A single-record request mostly measures Node's HTTP and JSON layers, which all implementations pay for. Dependent reads followed by computation expose the cost of crossing process boundaries. Cart quote responses cannot be cached; entity caching is allowed. Background writes prevent caches from filling once and never invalidating, making cross-process consistency part of the measured cost and a possible advantage for a collapsed stack.
-
-#### Dataset
-
-Generate the dataset once and version it. Every implementation loads exactly the same data.
-
-Use one large catalog, representative of a real Harper customer. There is no smaller in-memory variant: a dataset that fits entirely in cache does not represent Harper's normal customer workloads.
-
-#### Future Work
-
-Storefront UI, auth flows, product listing pages, search, checkout commit, images, and realtime are deferred until the initial methodology and implementations are established.
+The same repository holds the [Harper reference implementation](https://github.com/HarperFast/ecommerce-store), [project status and blockers](https://github.com/HarperFast/ecommerce-store/blob/main/docs/plan.md), and [deferred application work](https://github.com/HarperFast/ecommerce-store/blob/main/docs/future-work.md). This README defines the benchmark methodology and claim rules.
 
 ### Conformance
 
-The Harper reference implementation and detailed specification will include automated conformance and verification tests, likely implementation-independent E2E tests. Passing them is required but does not by itself establish fairness or correctness. As the specification grows, shared libraries may reduce differences between implementations.
+Every implementation must pass the [conformance suite](https://github.com/HarperFast/ecommerce-store/tree/main/e2e) and meet the specification's [conformance and review gate](https://github.com/HarperFast/ecommerce-store/blob/main/SPEC.md#conformance). Passing tests is required but does not by itself establish fairness or correctness. As the specification grows, shared libraries may reduce differences between implementations.
 
 Build each implementation as its stack recommends. Use documented database indexes, realistically sized and exercised caches, and vendor-recommended configuration. Do not handicap a stack with inefficient or incorrect code. Optimization guidance is sometimes incomplete, so this is a best-effort requirement and improvements are welcome at any time.
 
@@ -151,7 +131,7 @@ A comparison combines these into a stack in its own directory. Reference impleme
 
 Top-level `implementations` and `comparisons` folders are suggested, not required; the layout can evolve.
 
-The Harper implementation lives in its own repository. It demonstrates efficient Harper application development, carries the conformance suite defining the specification, and is tested and independently benchmarked against every significant Harper release. Reference it from comparisons rather than copying it here.
+The Harper implementation lives in [`ecommerce-store`](https://github.com/HarperFast/ecommerce-store). It demonstrates efficient Harper application development, carries the conformance suite defining the specification, and is tested and independently benchmarked against every significant Harper release. Reference it from comparisons rather than copying it here.
 
 ## Other benchmarks
 

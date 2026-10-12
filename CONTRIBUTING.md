@@ -2,7 +2,7 @@
 
 Follow Harper's [organization contribution guidelines](https://github.com/HarperFast/.github/blob/main/CONTRIBUTING.md) and [Code of Conduct](https://github.com/HarperFast/.github/blob/main/CODE_OF_CONDUCT.md).
 
-Read [README.md](README.md) first. Contributions must follow its application specification, measurement rules, implementation guidance, and claim rules. [Reporting results](README.md#reporting-results) explains how to submit an implementation or challenge a result.
+Read [README.md](README.md) first. Contributions must follow its measurement rules, implementation guidance, and claim rules, plus the linked [application specification](https://github.com/HarperFast/ecommerce-store/blob/main/SPEC.md). [Reporting results](README.md#reporting-results) explains how to submit an implementation or challenge a result.
 
 ## Especially welcome
 
