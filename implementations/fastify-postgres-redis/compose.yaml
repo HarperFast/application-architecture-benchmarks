@@ -1,0 +1,139 @@
+# The ecommerce-store application on Fastify + PostgreSQL + Redis.
+#
+# THE BUDGET IS SUMMED ACROSS ALL THREE SERVICES. The Harper reference runs as one container at
+# 2 CPU / 2 GiB (ecommerce-store/containers/compose.yaml TARGET_CPUS / TARGET_MEMORY); this stack
+# spends the same 2 CPU / 2 GiB across its three processes. The defaults below are the recorded
+# split; ../README.md explains how it was chosen. Change one share and you must take it from
+# another: `check-budget` refuses to start a stack whose limits do not sum to the target.
+#
+# Networking: one user-defined bridge, as for the reference. Only the app is published to the
+# host, for conformance runs; Postgres and Redis are reachable only on the bridge.
+#
+#   docker compose up -d --build                      # postgres, redis, app
+#   DATASET_DIR=/path/to/ecommerce-store/dataset/dev \
+#     docker compose run --rm loader                  # verify + load (not measured)
+
+name: aab-fastify-postgres-redis
+
+x-budget: &budget-env
+  TARGET_CPUS: ${TARGET_CPUS:-2}
+  TARGET_MEMORY_MIB: ${TARGET_MEMORY_MIB:-2048}
+  APP_CPUS: ${APP_CPUS:-1.25}
+  APP_MEMORY_MIB: ${APP_MEMORY_MIB:-640}
+  PG_CPUS: ${PG_CPUS:-0.5}
+  PG_MEMORY_MIB: ${PG_MEMORY_MIB:-1024}
+  REDIS_CPUS: ${REDIS_CPUS:-0.25}
+  REDIS_MEMORY_MIB: ${REDIS_MEMORY_MIB:-384}
+
+services:
+  postgres:
+    image: docker.io/library/postgres:18.6-trixie
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+    environment:
+      POSTGRES_USER: store
+      POSTGRES_DB: store
+      # Local test credential for a database reachable only on this compose bridge.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-store-local-only}
+      # C collation: ids sort and compare bytewise (as JavaScript compares them) and btree
+      # comparisons skip locale rules.
+      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
+    volumes:
+      # Postgres 18 images keep PGDATA under /var/lib/postgresql/18/docker; mount the parent.
+      # A named volume on a real filesystem. Never tmpfs.
+      - pg-data:/var/lib/postgresql
+      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    shm_size: 128mb
+    networks: [store]
+    deploy:
+      resources:
+        limits:
+          cpus: "${PG_CPUS:-0.5}"
+          memory: "${PG_MEMORY_MIB:-1024}m"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "store", "-d", "store"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+
+  redis:
+    image: docker.io/library/redis:8.10.2-trixie
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    volumes:
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    networks: [store]
+    deploy:
+      resources:
+        limits:
+          cpus: "${REDIS_CPUS:-0.25}"
+          memory: "${REDIS_MEMORY_MIB:-384}m"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+
+  app:
+    build: ./app
+    image: localhost/aab-fastify-postgres-redis-app:latest
+    environment:
+      WORKERS: ${APP_WORKERS:-2}
+      PG_POOL_MAX: ${PG_POOL_MAX:-8}
+      DATABASE_URL: postgres://store:${POSTGRES_PASSWORD:-store-local-only}@postgres:5432/store
+      REDIS_URL: redis://redis:6379
+      LOG_LEVEL: warn
+    ports:
+      - "${APP_HOST_PORT:-39926}:3000"
+    networks: [store]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    deploy:
+      resources:
+        limits:
+          cpus: "${APP_CPUS:-1.25}"
+          memory: "${APP_MEMORY_MIB:-640}m"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+      start_period: 5s
+
+  # Seeding is not measured and runs outside the target's budget.
+  loader:
+    image: localhost/aab-fastify-postgres-redis-app:latest
+    command: ["node", "src/load-dataset.js", "--dataset", "/dataset"]
+    environment:
+      DATABASE_URL: postgres://store:${POSTGRES_PASSWORD:-store-local-only}@postgres:5432/store
+      REDIS_URL: redis://redis:6379
+    volumes:
+      # Point DATASET_DIR at an ecommerce-store dataset directory (e.g. .../ecommerce-store/dataset/dev).
+      - ${DATASET_DIR:-./DATASET_DIR-not-set}:/dataset:ro
+    networks: [store]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    profiles: [tools]
+
+  # Refuses to pass unless the three services' limits sum to the target budget.
+  check-budget:
+    image: docker.io/library/node:24.21.0-slim
+    environment: *budget-env
+    command:
+      - node
+      - -e
+      - |
+        const e = process.env, n = (k) => Number(e[k]);
+        const cpus = n('APP_CPUS') + n('PG_CPUS') + n('REDIS_CPUS');
+        const mem = n('APP_MEMORY_MIB') + n('PG_MEMORY_MIB') + n('REDIS_MEMORY_MIB');
+        console.log(JSON.stringify({ cpus, memoryMiB: mem, target: { cpus: n('TARGET_CPUS'), memoryMiB: n('TARGET_MEMORY_MIB') } }));
+        if (Math.abs(cpus - n('TARGET_CPUS')) > 1e-9 || mem !== n('TARGET_MEMORY_MIB')) { console.error('budget mismatch'); process.exit(1); }
+    network_mode: none
+    profiles: [tools]
+
+networks:
+  store:
+    driver: bridge
+
+volumes:
+  pg-data:
