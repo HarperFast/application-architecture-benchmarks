@@ -10,8 +10,10 @@
 # frequency (counted cycles / busy time) per CPU per second. Keep the output: it is the
 # evidence behind "bounded and measured" for every result produced on this instance type.
 #
-# What a pass looks like (README "The clock"): cycles are countable, the spread across all
-# intervals is within the drift threshold, and the target-only and all-busy medians agree.
+# What a pass looks like (README "The clock"): cycles are countable per CPU and per cgroup,
+# the slices hold, and the target-only and all-busy medians agree within the session's drift
+# threshold: 2%, or three times the larger spread this probe measures, whichever is larger.
+# Trials whose effective frequency leaves the session median by more than that are re-run.
 # On C4 with ALL_CORE_MAX on Granite Rapids, Google's documented all-core turbo is 3.9 GHz.
 set -euo pipefail
 
@@ -85,7 +87,22 @@ summarize() { # summarize <csv>: effective GHz = counted cycles / busy time, per
 }
 echo "== effective GHz on target CPUs ($TARGET_CPUS)"
 { summarize "$OUT/target-only.csv"; summarize "$OUT/all-busy.csv"; } | tee "$OUT/summary.txt"
-grep -q 'no countable cycles' "$OUT/summary.txt" && FAIL+=("per-CPU cycles not counted")
+if grep -q 'no countable cycles' "$OUT/summary.txt"; then
+	FAIL+=("per-CPU cycles not counted")
+else
+	# Drift threshold (README "Decisions"): 2%, or 3x the larger measured spread.
+	verdict="$(awk '
+		{ for (i = 1; i <= NF; i++) {
+			if ($i ~ /^p50=/) p[NR] = substr($i, 5) + 0
+			if ($i ~ /^spread=/) { v = substr($i, 8); sub(/%/, "", v); s[NR] = v + 0 } } }
+		END {
+			t = 3 * (s[1] > s[2] ? s[1] : s[2]); if (t < 2) t = 2
+			d = 100 * (p[1] - p[2]) / p[1]; if (d < 0) d = -d
+			printf "drift threshold %.1f%%; target-only and all-busy medians differ by %.1f%% %s\n", t, d, (d > t ? "FAIL" : "ok")
+		}' "$OUT/summary.txt")"
+	echo "$verdict" | tee -a "$OUT/summary.txt"
+	case "$verdict" in *FAIL) FAIL+=("clock moves with load: medians differ by more than the drift threshold") ;; esac
+fi
 echo "probe output: $OUT"
 # Pass/fail covers only what can fail mechanically. Whether the spread is small enough is
 # judged against the drift threshold, by a person, the first time a machine type is used.

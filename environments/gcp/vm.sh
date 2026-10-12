@@ -5,19 +5,23 @@
 # output before running it for real, and fix this file when reality disagrees with it.
 #
 #   vm.sh preflight                 auth, billing, quota, and org-policy checks (read only)
-#   vm.sh up [--dry-run]            network + IAP rule (idempotent), then the VM
+#   vm.sh up [--dry-run]            network + IAP rule (+ Cloud NAT if needed), then the VM
 #   vm.sh status                    every VM carrying the arch-bench label, plus pending maintenance
 #   vm.sh describe                  GCP-side instance settings for the run-conditions record
 #   vm.sh ssh [-- command...]       IAP-tunnelled ssh
 #   vm.sh push LOCAL [REMOTE]       copy a file to the VM (default: home directory)
 #   vm.sh pull REMOTE LOCAL_DIR     copy a file from the VM
-#   vm.sh down                      delete the VM, then prove nothing billable is left
+#   vm.sh down                      delete the VM (and Cloud NAT), then prove nothing billable is left
+#
+# Egress: the VM gets an ephemeral external IPv4 by default. If the organization policy
+# constraints/compute.vmExternalIpAccess blocks that, `up` creates it with no external address
+# and puts Cloud NAT on the dedicated network instead. NETWORK_MODE=external|nat overrides.
 #
 # Patterned on HarperFast/sharded-blob-test provisioning/gcp/fleet.sh: dedicated network, SSH
 # only through IAP, no service account, labels on everything, teardown that rescans.
 set -euo pipefail
 
-: "${PROJECT:?set PROJECT to the benchmark project id}"
+PROJECT="${PROJECT:-harper-arch-bench}"
 GCLOUD="${GCLOUD:-gcloud}"
 # Keep these commands from ever acting on another project through a shared default config.
 export CLOUDSDK_ACTIVE_CONFIG_NAME="${CLOUDSDK_ACTIVE_CONFIG_NAME:-arch-bench}"
@@ -34,6 +38,9 @@ MAX_RUN="${MAX_RUN:-8h}"
 NETWORK=arch-bench-net
 FW_IAP=arch-bench-allow-iap
 IAP_RANGE=35.235.240.0/20
+ROUTER=arch-bench-router
+NAT=arch-bench-nat
+NETWORK_MODE="${NETWORK_MODE:-auto}"              # auto | external | nat
 DRY_RUN=0
 
 die() { echo "ERROR: $*" >&2; exit 1; }
@@ -58,10 +65,35 @@ cmd_preflight() {
 		--format='table(quotas.metric,quotas.limit,quotas.usage)'
 	echo "machine type available in ${ZONE}:"
 	"${G[@]}" compute machine-types describe "$MACHINE" --zone="$ZONE" --format='value(name,guestCpus,memoryMb)' || echo "  NOT available in $ZONE"
-	echo "org policies that commonly block this setup (empty means not set on the project):"
-	for c in compute.vmExternalIpAccess compute.requireOsLogin iam.disableServiceAccountKeyCreation; do
+	echo "external IPv4 (constraints/compute.vmExternalIpAccess): $(external_ip_policy)"
+	echo "  allowed: the VM gets an ephemeral external IP. blocked: 'up' uses --no-address plus Cloud NAT. unknown: 'up' tries an external IP; rerun with NETWORK_MODE=nat if the create is refused."
+	echo "other org policies (empty means not set on the project):"
+	for c in constraints/compute.requireOsLogin constraints/iam.disableServiceAccountKeyCreation; do
 		printf '  %s: ' "$c"; "${G[@]}" resource-manager org-policies describe "$c" --effective --format='value(listPolicy,booleanPolicy)' 2>/dev/null || echo '?'
 	done
+}
+
+# allowed | blocked | unknown. The constraint is a list of instances allowed an external IP:
+# deny-all, or an allow-list (which cannot name a VM that does not exist yet), blocks this VM.
+external_ip_policy() {
+	local policy
+	policy="$("${G[@]}" resource-manager org-policies describe constraints/compute.vmExternalIpAccess \
+		--effective --format='json(listPolicy)' 2>/dev/null)" || { echo unknown; return; }
+	case "$policy" in
+		*'"allValues": "DENY"'*|*allowedValues*) echo blocked ;;
+		*) echo allowed ;;
+	esac
+}
+
+# Egress for apt, GitHub, Docker Hub, and nodejs.org without an external IP on the VM.
+ensure_nat() {
+	if ! "${G[@]}" compute routers describe "$ROUTER" --region="$REGION" >/dev/null 2>&1; then
+		run "${G[@]}" compute routers create "$ROUTER" --network="$NETWORK" --region="$REGION"
+	fi
+	if ! "${G[@]}" compute routers nats describe "$NAT" --router="$ROUTER" --region="$REGION" >/dev/null 2>&1; then
+		run "${G[@]}" compute routers nats create "$NAT" --router="$ROUTER" --region="$REGION" \
+			--auto-allocate-nat-external-ips --nat-all-subnet-ip-ranges
+	fi
 }
 
 ensure_network() {
@@ -100,13 +132,25 @@ cmd_up() {
 	esac
 	ensure_network
 
+	local mode="$NETWORK_MODE" nic="network=${NETWORK},nic-type=GVNIC"
+	if [ "$mode" = auto ]; then
+		mode=external
+		[ "$DRY_RUN" = 0 ] && [ "$(external_ip_policy)" = blocked ] && mode=nat
+	fi
+	case "$mode" in
+		external) ;;
+		nat) ensure_nat; nic+=",no-address" ;;
+		*) die "NETWORK_MODE=$NETWORK_MODE: use auto, external, or nat" ;;
+	esac
+	echo "egress: $mode$( [ "$DRY_RUN" = 1 ] && [ "$NETWORK_MODE" = auto ] && echo ' (dry run does not read the org policy; vm.sh preflight does)')"
+
 	run "${G[@]}" compute instances create "$NAME" \
 		--zone="$ZONE" \
 		--machine-type="$MACHINE" \
 		"${cpu_flags[@]}" \
 		--image-family="$image_family" --image-project=debian-cloud \
 		--boot-disk-type=hyperdisk-balanced --boot-disk-size=50GB \
-		--network-interface="network=${NETWORK},nic-type=GVNIC" \
+		--network-interface="$nic" \
 		--tags=arch-bench \
 		--labels="arch-bench=${NAME},comparison=${COMPARISON},session=${SESSION},owner=${OWNER}" \
 		--no-service-account --no-scopes \
@@ -162,10 +206,15 @@ cmd_down() {
 	# Prove it: nothing labelled for this project's benchmarks may still bill.
 	local left
 	left="$("${G[@]}" compute instances list --filter='labels.arch-bench:*' --format='value(name)')"
+	# Cloud NAT (NAT mode only) goes once no benchmark VM needs it; deleting the router removes it.
+	if [ -z "$left" ] && "${G[@]}" compute routers describe "$ROUTER" --region="$REGION" >/dev/null 2>&1; then
+		"${G[@]}" compute routers delete "$ROUTER" --region="$REGION"
+	fi
 	left+="$("${G[@]}" compute disks list --filter='labels.arch-bench:* OR name~^arch-bench-' --format='value(name)')"
 	left+="$("${G[@]}" compute addresses list --format='value(name)')"
+	left+="$("${G[@]}" compute routers list --format='value(name)')"
 	[ -z "$left" ] || die "still present, delete by hand after checking it is yours: $left"
-	echo "down: 0 instances, 0 disks, 0 reserved addresses. The network and IAP rule are free and stay."
+	echo "down: 0 instances, 0 disks, 0 reserved addresses, 0 routers. The network and IAP rule are free and stay."
 }
 
 sub="${1:-}"; shift || true

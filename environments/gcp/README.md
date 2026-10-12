@@ -2,7 +2,7 @@
 
 How to run a [stack comparison](../../README.md#stack-comparisons) on a dedicated Linux VM on Google Cloud: the same containers, budgets, and harness as [tier 1](../../README.md#environment-tiers), on a host where cgroup limits, per-target CPU accounting, and the clock can be trusted enough to publish.
 
-> **Status, 2026-10-12: prepared, not executed.** No tier-2 host has been created. The scripts in this directory have never run, the instance recommendation rests on Google's documentation rather than on measurement, and prices are third-party snapshots. The first session [qualifies the instance](#2-qualify-the-clock) before anything else is trusted. [Decisions needed](#decisions-needed) lists what has to be settled before that session, and [known gaps](#known-gaps) lists what the harness still has to gain.
+> **Status, 2026-10-12: prepared, not executed.** No tier-2 host has been created. The scripts in this directory have never run, the instance recommendation rests on Google's documentation rather than on measurement, and prices are third-party snapshots. The first session [qualifies the instance](#2-qualify-the-clock) before anything else is trusted. [Decisions](#decisions) records the choices made before that session, and [known gaps](#known-gaps) lists what the harness still has to gain.
 
 | File | Runs on | Purpose |
 |-|-|-|
@@ -22,16 +22,16 @@ Two documented C4 features get close enough to produce the efficiency figure hon
 - **Bounded.** `--turbo-mode=ALL_CORE_MAX` (C4 and C4N only) disables single-core boost and limits vCPUs to the sustainable all-core turbo frequency, which Google offers "for more consistent CPU performance". It is a ceiling the provider enforces, not a guarantee of a floor.
 - **Measured.** `--performance-monitoring-unit=architectural` (C4, C4A, M4, A4X; no charge) exposes unhalted core cycles, reference cycles, and instructions retired to the guest. `perf stat` in cgroup mode then counts the cycles each target actually consumed, so gigacycles are counted rather than inferred from CPU-seconds multiplied by an assumed frequency.
 
-On tier 2, **ops per CPU-gigacycle = successful requests in a step ÷ (cycles counted in the target's cgroup during that step ÷ 10⁹)**. Effective frequency, cycles divided by the target's CPU time, is recorded for every step of every target. A trial whose effective frequency drifts beyond the threshold from the session median is re-run, which is the rule's "re-run any rep whose clock drifts" with a measured clock instead of a pinned one. A published figure says "all-core turbo, measured at N GHz", never "pinned". The tier-2 paragraph in the top-level README currently says the clock can be pinned here; that wording needs to change, and the change is a [decision](#decisions-needed) rather than something this document settles.
+On tier 2, **ops per CPU-gigacycle = successful requests in a step ÷ (cycles counted in the target's cgroup during that step ÷ 10⁹)**. Effective frequency, cycles divided by the target's CPU time, is recorded for every step of every target. A trial whose effective frequency leaves the session median by more than the drift threshold (2%, or three times the spread the session's clock probe measured, whichever is larger) is re-run, which is the rule's "re-run any rep whose clock drifts" with a measured clock instead of a pinned one. A published figure says "all-core turbo, measured at N GHz", never "pinned". This is the [clock rule](../../README.md#measurement-rules) as it applies where the clock cannot be pinned.
 
 What a shared host leaves uncontrolled: other tenants share the socket's L3 cache, memory bandwidth, and power budget. Whole cores (SMT off) remove sibling-thread sharing, and ALL_CORE_MAX removes most of the frequency coupling to neighbours. Nothing on a shared VM removes cache and memory-bandwidth contention, and it cannot be observed either, because last-level cache events need the enhanced PMU, which only 144- and 288-vCPU C4 shapes offer. The mitigation is procedural: every target in one session, trials interleaved so slow drift lands on all of them, and trial ranges reported.
 
 | Option | Clock | Neighbours | On-demand, us-central1 | Use |
 |-|-|-|-|-|
 | **C4 VM**, ALL_CORE_MAX, PMU, SMT off | Bounded and measured | Share L3 and memory bandwidth | ~$1/h for `c4-standard-16-lssd` | Every session (recommended) |
-| C4A VM (Axion, arm64), PMU | Measured. Google says Arm processors run at all-core turbo, but documents no frequency for Axion | Same | ~$0.97/h for `c4a-standard-16-lssd` (16 cores) | Alternative, if the probe shows a flat clock |
-| Sole-tenant node, `c4-node-192-384` | As C4 VM (not verified on sole tenancy) | None | ~$9/h for the whole node | Only if neighbour effects are shown or challenged |
-| Bare metal, `c4-standard-288-lssd-metal` | Possibly pinnable: whether the OS gets P-state control on GCP bare metal is undocumented | None | ~$18/h plus SSD | Same; the only option that might satisfy "pinned" literally, to be verified on first boot |
+| C4A VM (Axion, arm64), PMU | Measured. Google says Arm processors run at all-core turbo, but documents no frequency for Axion | Same | ~$0.97/h for `c4a-standard-16-lssd` (16 cores) | One probe session for comparison; not the default |
+| Sole-tenant node, `c4-node-192-384` | As C4 VM (not verified on sole tenancy) | None | ~$9/h for the whole node | One verification session at most; never the default |
+| Bare metal, `c4-standard-288-lssd-metal` | Possibly pinnable: whether the OS gets P-state control on GCP bare metal is undocumented | None | ~$18/h plus SSD | One verification session at most; never the default. The only option that might allow pinning, to be checked on first boot |
 | N2, C3, C2, and other series without a guest PMU | Neither bounded nor observable | Shared | | Not usable for an efficiency figure; `vm.sh` refuses them |
 
 ## Instance
@@ -47,6 +47,7 @@ What a shared host leaves uncontrolled: other tenants share the socket's L3 cach
 - `--maintenance-policy=MIGRATE`. C4 gives seven days' notice of host maintenance; `vm.sh status` shows it, and a session does not start with maintenance pending. A live migration during a trial voids that trial; `sample.sh` logs it.
 - `--max-run-duration=8h --instance-termination-action=DELETE`: the VM deletes itself even if nobody runs `vm.sh down`.
 - `--no-service-account --no-scopes`, a dedicated network, and SSH only through IAP.
+- Egress through an ephemeral external IPv4 address; the only inbound path is SSH through IAP. If the organization policy `constraints/compute.vmExternalIpAccess` blocks external addresses, which `vm.sh preflight` reports, `vm.sh up` creates the VM with `--no-address` and puts Cloud NAT (`arch-bench-router`, `arch-bench-nat`) on `arch-bench-net`, and `vm.sh down` removes it again. `NETWORK_MODE=external` or `nat` overrides the detection. The measured path is the same either way: target and generator talk over the compose bridge, not through the VM's network interface.
 
 The region is a cost and availability choice with no effect on the measurement, since nothing crosses a WAN.
 
@@ -71,7 +72,8 @@ The rules allow the generator on the same machine provided it sits outside the t
 One dedicated project holds every tier-2 session, so spend is attributable and nothing else lives beside the VMs. Any staff member can create a project and link it to the company billing account, which carries credits. Commands for the person setting it up, once:
 
 ```bash
-gcloud projects create "$PROJECT"                      # project id: see Decisions needed
+PROJECT=harper-arch-bench
+gcloud projects create "$PROJECT" --folder="$FOLDER_ID"   # parent folder: see Decisions
 gcloud billing projects link "$PROJECT" --billing-account="$BILLING_ACCOUNT"
 gcloud services enable compute.googleapis.com iap.googleapis.com billingbudgets.googleapis.com --project="$PROJECT"
 gcloud config configurations create arch-bench --no-activate
@@ -89,7 +91,7 @@ Spend hygiene:
 
 - `vm.sh` uses the `arch-bench` gcloud configuration, never the shell's default, so it cannot act on another project.
 - Every VM carries labels `arch-bench`, `comparison`, `session`, and `owner`, which reach the billing export.
-- One VM per session, deleted at the end of the session. `vm.sh down` deletes it and then fails loudly if any instance, disk, or reserved address remains. The network and IAP firewall rule cost nothing and stay.
+- One VM per session, deleted at the end of the session. `vm.sh down` deletes it, deletes Cloud NAT if the session used it, and then fails loudly if any instance, disk, reserved address, or router remains. The network and IAP firewall rule cost nothing and stay.
 - The self-delete deadline caps a forgotten VM at eight hours. Pull results before it fires: local SSD and the boot disk are deleted with the VM.
 - No Spot VMs for measured sessions: a preemption mid-session breaks the one-session rule.
 - `vm.sh preflight` shows C4 CPU and local SSD quota; a new project's default C4 quota may be below 16 vCPUs.
@@ -104,7 +106,7 @@ Estimated cost per session, from third-party price trackers in October 2026 (`c4
 | Forgotten VM, capped by the deadline | 8 h | ~$8 |
 | Bare-metal verification session | ~4 h | ~$80 |
 
-Disk, the external IPv4 address, and egress are each well under a cent an hour; results are tens of megabytes and the dataset pull is ingress.
+Disk, the external IPv4 address, and egress are each well under a cent an hour; results are tens of megabytes and the dataset pull is ingress. In the Cloud NAT fallback, NAT adds its gateway charge and per-gigabyte data processing on the few gigabytes of packages, images, and dataset a session pulls: cents per session.
 
 ## Auth for a CLI-driven agent
 
@@ -116,7 +118,7 @@ An agent drives GCP through `gcloud`, not the console, and the organization's se
 - Teardown does not depend on anyone's session either: the self-delete deadline fires regardless.
 - No Application Default Credentials and no service account on the VM: the VM never calls a Google API, and the repositories it clones are public.
 
-The operator needs Compute Admin and IAP-secured Tunnel User on the project (`roles/compute.admin`, `roles/iap.tunnelResourceAccessor`); a project owner has both.
+Ethan Arrowood owns the project and is its only member to start; others are added on request. An operator needs Compute Admin and IAP-secured Tunnel User on the project (`roles/compute.admin`, `roles/iap.tunnelResourceAccessor`); the owner has both.
 
 ## Host
 
@@ -151,7 +153,7 @@ Every comparison follows this order. `$S` is the session directory on the VM, an
 ### 1. Provision
 
 ```bash
-export PROJECT=<project-id> COMPARISON=<name> SESSION=$(date -u +%Y%m%dt%H%M) RUNS=<local raw-results dir>
+export PROJECT=harper-arch-bench COMPARISON=<name> SESSION=$(date -u +%Y%m%dt%H%M) RUNS=<local raw-results dir>
 environments/gcp/vm.sh preflight
 environments/gcp/vm.sh up --dry-run          # read every flag
 environments/gcp/vm.sh up
@@ -170,7 +172,7 @@ S=/mnt/lssd/out/$SESSION; sudo mkdir -p $S && sudo chown $USER $S
 sudo bash ~/probe-clock.sh $S/probe
 ```
 
-About three minutes, every session. It fails the session if cycles cannot be counted, globally or per cgroup, or if a worker's allowed CPUs differ from its slice. It reports effective frequency on the target CPUs with only the target busy and with every CPU busy. The first session on a machine type is the real qualification: the spread across intervals and the agreement between the two medians are what justify "bounded and measured" for every result produced on that type, and they set the [drift threshold](#decisions-needed).
+About three minutes, every session. It fails the session if cycles cannot be counted, globally or per cgroup, or if a worker's allowed CPUs differ from its slice. It reports effective frequency on the target CPUs with only the target busy and with every CPU busy. The first session on a machine type is the real qualification: the spread across intervals and the agreement between the two medians are what justify "bounded and measured" for every result produced on that type. The probe prints the session's drift threshold (2%, or three times the larger spread it measured) and fails if the two medians differ by more than that.
 
 ### 3. Code and data
 
@@ -186,7 +188,7 @@ git -C /mnt/lssd/src/application-architecture-benchmarks checkout <commit>
 
 One expanded, verified copy of the dataset serves every target in the session. The LFS pull is about 320 MB and counts against the organization's LFS bandwidth.
 
-Snapshots are made on the tier-2 host, per session. A tier-1 snapshot is never reused here: tier 1 runs arm64 containers on macOS, and the C4 host is x86-64. Reusing a tier-2 snapshot across sessions is possible when the target commit, image digest, platform version, and dataset manifest all match, and saves about 20 minutes per target; the default is to re-seed, because it costs about $0.35 and removes a provenance question.
+Snapshots are made on the tier-2 host, per session. A tier-1 snapshot is never reused here: tier 1 runs arm64 containers on macOS, and the C4 host is x86-64. Snapshots are not reused across sessions either: every session re-seeds every target, which costs about 20 minutes and $0.35 per target and removes any question of where a snapshot came from.
 
 ### 4. Seed, snapshot, start recording
 
@@ -261,16 +263,18 @@ Every raw sample is kept with the comparison. Nothing on the VM survives `down`.
 - **No comparison-level orchestrator.** Interleaving targets, restoring, dropping caches, and stopping the other target is a loop that belongs in the comparison's directory once a second target exists. Until then it is the steps under [trials](#5-trials).
 - **The Harper reference harness** needs placement, accounting, and lifecycle changes before its first tier-2 run. Placement is blocking: without it, the target lands in `system.slice` on the housekeeping CPUs. See [`ecommerce-store-gaps.md`](ecommerce-store-gaps.md).
 
-## Decisions needed
+## Decisions
 
-1. **Project id and parent folder**, for example `harper-arch-bench`. Project ids are global and permanent.
-2. **Budget ceiling and alert thresholds.** Suggested: $100 a month, alerts at 50%, 90%, and 100% of actual spend and 100% of forecast.
-3. **Whether "all-core turbo, measured" satisfies the clock rule.** If it does, the top-level README's "the clock can be pinned" for tier 2 and the first measurement rule need rewording to "pinned, or bounded and measured per step". If it does not, publishable runs need bare metal (next item).
-4. **Bare-metal or sole-tenant approval** (~$18/h plus SSD or ~$9/h). Suggested: one verification session after the first comparison to find out whether bare metal gives OS frequency control and how far its results differ from the VM's, rather than as the default.
-5. **Drift threshold** for re-running a trial. Suggested: 2% from the session median, or three times the qualification probe's spread if that is larger.
-6. **x86-64 or arm64.** Suggested: C4 (x86-64) by default, because its frequency behaviour is documented. C4A gives twice the cores per dollar with no SMT to disable and matches tier 1's architecture, and is worth one qualification probe to compare.
-7. **Snapshot reuse across sessions.** Suggested: no; re-seed every session.
-8. **Who gets access.** Which staff hold Compute Admin and IAP tunnel access, and whether an organization policy blocks external IP addresses on VMs, in which case the VM needs Cloud NAT for package and repository access.
+Made 2026-10-12, before the first session.
+
+1. **Project:** `harper-arch-bench`. A parent folder was not named in the suggestion this accepted; whoever creates the project records its folder here.
+2. **Budget:** $100 a month, with alerts at 50%, 90%, and 100% of actual spend and at 100% of forecast.
+3. **Clock rule:** "all-core turbo, measured" satisfies it where the clock cannot be pinned. The top-level README's tier-2 paragraph and first [measurement rule](../../README.md#measurement-rules) say so: pin where the host allows it; otherwise bound it, count cycles per target, record the effective frequency, and publish "all-core turbo, measured at N GHz", never "pinned".
+4. **Bare metal and sole tenancy:** one verification session at most, to find out whether bare metal gives the OS frequency control and how far its results differ from the VM's. Never the default.
+5. **Drift threshold:** 2% from the session median, or three times the session probe's measured spread, whichever is larger.
+6. **Architecture:** C4 (x86-64) is the default. One probe session on C4A (`MACHINE=c4a-standard-16-lssd vm.sh up`, then `host-setup.sh` and `probe-clock.sh`; the default layout uses 8 of its 16 cores) compares its clock behaviour. C4A does not become the default without a further decision.
+7. **Snapshots:** no reuse across sessions; every session re-seeds every target.
+8. **Access and egress:** Ethan Arrowood owns the project and is its only member to start; others are added on request. VMs get an external IPv4 address by default. Where `constraints/compute.vmExternalIpAccess` blocks that, the fallback is `--no-address` plus Cloud NAT on `arch-bench-net`, which `vm.sh` supports and which, like the rest, has not been run.
 
 ## Sources
 
