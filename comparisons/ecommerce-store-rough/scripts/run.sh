@@ -13,7 +13,7 @@
 # Targets: `fpr` (Fastify + Postgres + Redis) and `harper` (the reference, built from the
 # ecommerce-store checkout, unmodified).
 #
-# Environment: SCALE (dev), RATES, DURATION, WARMUP, TRIALS, BUDGET (shared|split, fpr only),
+# Environment: SCALE (dev), RATES, DURATION, WARMUP, TRIALS, QUOTE_SHARE (0.5), BUDGET (shared|split, fpr only),
 # APP_CPUS/PG_CPUS/REDIS_CPUS for the split, WAIT_FOR_IDLE (seconds to wait for other projects'
 # containers to go idle before a measurement; default 900).
 set -euo pipefail
@@ -271,6 +271,7 @@ bench() {
 			-e CONDITIONS="/results/$(basename "$conditions")" -e RUN_CONDITIONS="$(cat "$conditions")" bench -- \
 			--url "$(url_in_network "$target")" --dataset "/work/dataset/$SCALE" --target-cgroups "$target_cgroups" \
 			--rates "${RATES:-100,200,400,600,800,1000,1200}" --duration "${DURATION:-15}" --warmup "${WARMUP:-10}" \
+			--quote-share "${QUOTE_SHARE:-0.5}" \
 			--out /results --cold-ms "$COLD_MS" | tee "$RAW/console-$target-$stamp.txt"
 		kill "$host_sampler" 2>/dev/null || true
 		post_run_stats "$target" "$stamp" >/dev/null

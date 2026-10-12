@@ -16,6 +16,12 @@ const rawDir = dirname(logPath);
 const files = [...readFileSync(logPath, 'utf8').matchAll(/^summary: \/results\/(summary-[^\s]+\.json)$/gm)].map((m) => join(rawDir, m[1]));
 if (!files.length) throw new Error(`no summaries named in ${logPath}`);
 
+/** VM CPU no cgroup was charged for (kernel threads, interrupts), from the wrapper. */
+const unchargedVmCores = (step) => step.machine?.unchargedCores ?? null;
+const contended = (step) => !!step.machine?.contended;
+const coresOf = (step, c) => step.machine?.perGroup?.[c]?.cores ?? null;
+const throttleOf = (step, c) => step.machine?.perGroup?.[c]?.throttledSeconds ?? 0;
+
 const all = files.map((file) => {
 	const s = JSON.parse(readFileSync(file, 'utf8'));
 	const config = s.target === 'fpr' ? `fastify-postgres-redis (${s.conditions.budget?.mode} budget)` : 'harper reference';
@@ -26,19 +32,13 @@ const all = files.map((file) => {
 		const other = lines.map((l) => Number(l[2]));
 		host = { samples: lines.length, nonVmBusyCoresMean: +(other.reduce((a, b) => a + b, 0) / other.length).toFixed(2), nonVmBusyCoresMax: Math.max(...other) };
 	} catch {}
-	return { file: basename(file), config, summary: s, host, contended: s.steps.some((step) => step.cpu?.contended) };
+	return { file: basename(file), config, summary: s, host, contended: s.steps.some((step) => contended(step)) };
 });
 // A STEP during which another container on the machine was busy is contaminated and excluded;
 // the trial's other steps still count. Each row reports how many clean observations it rests on.
 const trials = all;
 const discarded = all.filter((t) => t.contended);
 
-function unchargedVmCores(step) {
-	const cpu = step.cpu;
-	if (!cpu?.machineCoresBusy || cpu.generatorContainerCores === null || cpu.generatorContainerCores === undefined) return null;
-	const target = cpu.perGroup.budget ? cpu.perGroup.budget.cpuUtilization : Object.values(cpu.perGroup).reduce((a, g) => a + g.cpuUtilization, 0);
-	return +(cpu.machineCoresBusy.busy - target - cpu.generatorContainerCores - (cpu.unattributedContainerCores ?? 0) - (cpu.vmServicesCores ?? 0)).toFixed(3);
-}
 
 const median = (xs) => {
 	const v = xs.filter((x) => x !== null && x !== undefined && !Number.isNaN(x)).sort((a, b) => a - b);
@@ -70,18 +70,18 @@ for (const config of configs) {
 			host: t.host,
 			contention: t.summary.conditions.contentionAtStart?.busyOtherContainers ?? null,
 			steps: t.summary.steps.map((s) => ({
-				contended: !!s.cpu?.contended,
-				offered: s.offeredRate, achieved: s.achievedRate, shed: s.shed, errors: s.errors,
-				p50: s.p50, p90: s.p90, p99: s.p99, quoteP99: s.quote.p99, productP99: s.product.p99,
+				contended: contended(s),
+				offered: s.offeredRate, achieved: s.achievedRate, saturated: s.saturated, shed: s.shed, errors: s.errors,
+				p50: s.p50, p90: s.p90, p99: s.p99, quoteP99: s.quote.p99, productP99: s.product.p99, dispatchLagP99: s.dispatchLagP99,
 				productCacheHitRate: s.productCacheHitRate, invalidations: s.invalidations, writeFailures: s.writeFailures,
-				generatorCpuLoad: s.generatorCpuLoad, targetCpuMsPerOk: s.targetCpuMsPerOk,
-				cores: Object.fromEntries(components.map((c) => [c, s.cpu?.perGroup[c]?.cpuUtilization ?? null])),
-				throttledSeconds: Object.fromEntries(components.map((c) => [c, s.cpu?.perGroup[c]?.throttledSeconds ?? null])),
-				machineBusyCores: s.cpu?.machineCoresBusy?.busy ?? null,
-				machineSoftirqCores: s.cpu?.machineCoresBusy?.softirq ?? null,
-				generatorContainerCores: s.cpu?.generatorContainerCores ?? null,
-				// VM CPU no container was charged for: kernel and hypervisor work, much of it network
-				// processing between containers, which the target's cgroup budget does not limit.
+				generatorCpuLoad: s.generatorCpuLoad, generatorSaturated: s.generatorSaturated,
+				targetCpuLoad: s.targetCpuLoad, targetCpuMsPerOk: s.targetCpuMsPerOk,
+				cores: Object.fromEntries(components.map((c) => [c, coresOf(s, c)])),
+				throttledSeconds: Object.fromEntries(components.map((c) => [c, throttleOf(s, c)])),
+				generatorContainerCores: s.machine?.generatorContainerCores ?? null,
+				otherContainerCores: s.machine?.otherContainerCores ?? null,
+				vmServicesCores: s.machine?.vmServicesCores ?? null,
+				machineBusyCores: s.machine?.machineCores?.busy ?? null,
 				unchargedVmCores: unchargedVmCores(s),
 			})),
 		})),
@@ -92,17 +92,17 @@ for (const config of configs) {
 
 	out.push(`### ${config}`, '');
 	out.push(`${group.length} trial(s), ${group.filter((t) => t.contended).length} with at least one contended step (those steps excluded; n = clean observations per row). Cold start to first 200: ${fmt(group.map((t) => t.summary.conditions.lifecycle?.coldStartFirst200Ms), 0)} ms. Contention at start: ${group.map((t) => t.summary.conditions.contentionAtStart?.busyOtherContainers || 'none').join(', ')}. Host (macOS) cores busy outside the VM, mean per trial: ${group.map((t) => t.host?.nonVmBusyCoresMean ?? '-').join(', ')}.`, '');
-	const header = ['offered rps', 'n', 'achieved rps', 'shed', 'p50 ms', 'p99 ms', 'quote p99', 'product p99', 'product hit %', ...components.map((c) => `${c} cores`), 'target CPU ms/req', 'uncharged VM cores', 'gen CPU'];
+	const header = ['offered rps', 'n', 'achieved rps', 'shed', 'p50 ms', 'p99 ms', 'quote p99', 'product p99', 'product hit %', ...components.map((c) => `${c} cores`), 'target cores', 'target CPU ms/req', 'uncharged VM cores', 'gen CPU'];
 	out.push(`| ${header.join(' | ')} |`, `|${header.map(() => '-').join('|')}|`);
 	const rates = first.steps.map((s) => s.offeredRate);
 	for (const rate of rates) {
-		const steps = group.map((t) => t.summary.steps.find((s) => s.offeredRate === rate)).filter((s) => s && !s.cpu?.contended);
+		const steps = group.map((t) => t.summary.steps.find((s) => s.offeredRate === rate)).filter((s) => s && !contended(s));
 		if (!steps.length) {
 			out.push(`| ${rate} | 0 | ${header.slice(2).map(() => '-').join(' | ')} |`);
 			continue;
 		}
 		const throttle = (c) => {
-			const t = steps.map((s) => s.cpu?.perGroup[c]?.throttledSeconds ?? 0);
+			const t = steps.map((s) => throttleOf(s, c));
 			return Math.max(...t) >= 0.05 ? ` (thr ${fmt(t)}s)` : '';
 		};
 		out.push(
@@ -116,10 +116,11 @@ for (const config of configs) {
 				fmt(steps.map((s) => s.quote.p99)),
 				fmt(steps.map((s) => s.product.p99)),
 				fmt(steps.map((s) => (s.productCacheHitRate ?? NaN) * 100)),
-				...components.map((c) => fmt(steps.map((s) => s.cpu?.perGroup[c]?.cpuUtilization), 2) + throttle(c)),
+				...components.map((c) => fmt(steps.map((s) => coresOf(s, c)), 2) + throttle(c)),
+				fmt(steps.map((s) => s.targetCpuLoad), 2),
 				fmt(steps.map((s) => s.targetCpuMsPerOk), 3),
 				fmt(steps.map((s) => unchargedVmCores(s)), 2),
-				fmt(steps.map((s) => s.generatorCpuLoad), 2) + (steps.some((s) => s.generatorSaturated) ? ' (gen sat.)' : ''),
+				fmt(steps.map((s) => s.generatorCpuLoad), 2) + (steps.some((s) => s.generatorSaturated) ? ` (${steps.filter((s) => s.generatorSaturated).length}x gen flag)` : ''),
 			].join(' | ')} |`
 		);
 	}
