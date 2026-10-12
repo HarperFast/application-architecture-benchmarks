@@ -242,6 +242,7 @@ bench() {
 		say "trial $trial/$TRIALS for $target (budget: $([ "$target" = fpr ] && echo "$BUDGET" || echo 'single container'))"
 		restore "$target"
 		wait_for_idle
+		"$HERE/scripts/host-load.sh" "$RAW/host-$target-$stamp.txt" & local host_sampler=$!
 		cold_start "$target"
 		[ "$target" = fpr ] && "$CLI" exec "$(ctr postgres)" psql -U store -d store -qAt -c "SELECT pg_stat_statements_reset()" -c "SELECT pg_stat_reset()" >/dev/null
 		local cgroups="{" sep=""
@@ -255,6 +256,7 @@ bench() {
 			--url "$(url_in_network "$target")" --dataset "/work/dataset/$SCALE" \
 			--rates "${RATES:-100,200,400,600,800,1000,1200}" --duration "${DURATION:-15}" --warmup "${WARMUP:-10}" \
 			--out /results --cold-ms "$COLD_MS" | tee "$RAW/console-$target-$stamp.txt"
+		kill "$host_sampler" 2>/dev/null || true
 		post_run_stats "$target" "$stamp" >/dev/null
 		[ "$target" = fpr ] && audit | tee -a "$RAW/console-$target-$stamp.txt"
 	done

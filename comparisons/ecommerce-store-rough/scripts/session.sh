@@ -30,7 +30,7 @@ trial() { # <target> <budget>
 
 for t in $(seq 1 "${SESSION_TRIALS:-3}"); do
 	trial fpr shared
-	trial harper n/a
+	trial harper shared # BUDGET is ignored for the single-container reference
 done
 for t in $(seq 1 "${SPLIT_TRIALS:-0}"); do
 	trial fpr split

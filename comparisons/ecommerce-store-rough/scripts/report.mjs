@@ -19,7 +19,14 @@ if (!files.length) throw new Error(`no summaries named in ${logPath}`);
 const all = files.map((file) => {
 	const s = JSON.parse(readFileSync(file, 'utf8'));
 	const config = s.target === 'fpr' ? `fastify-postgres-redis (${s.conditions.budget?.mode} budget)` : 'harper reference';
-	return { file: basename(file), config, summary: s, contended: s.steps.some((step) => step.cpu?.contended) };
+	// Host (macOS) load outside the VM during the trial, from scripts/host-load.sh.
+	let host = null;
+	try {
+		const lines = readFileSync(join(rawDir, `host-${s.target}-${s.conditions.stamp}.txt`), 'utf8').trim().split('\n').map((l) => l.split(' '));
+		const other = lines.map((l) => Number(l[2]));
+		host = { samples: lines.length, nonVmBusyCoresMean: +(other.reduce((a, b) => a + b, 0) / other.length).toFixed(2), nonVmBusyCoresMax: Math.max(...other) };
+	} catch {}
+	return { file: basename(file), config, summary: s, host, contended: s.steps.some((step) => step.cpu?.contended) };
 });
 // A trial during which another container on the machine was busy is contaminated: excluded,
 // and counted in the report.
@@ -53,6 +60,7 @@ for (const config of configs) {
 			file: t.file,
 			stamp: t.summary.conditions.stamp,
 			coldStartFirst200Ms: t.summary.conditions.lifecycle?.coldStartFirst200Ms ?? null,
+			host: t.host,
 			contention: t.summary.conditions.contentionAtStart?.busyOtherContainers ?? null,
 			steps: t.summary.steps.map((s) => ({
 				offered: s.offeredRate, achieved: s.achievedRate, shed: s.shed, errors: s.errors,
@@ -70,7 +78,7 @@ for (const config of configs) {
 	};
 
 	out.push(`### ${config}`, '');
-	out.push(`${group.length} uncontended trial(s)${discarded.some((t) => t.config === config) ? ` (${discarded.filter((t) => t.config === config).length} contended trial(s) excluded)` : ''}. Cold start to first 200: ${fmt(group.map((t) => t.summary.conditions.lifecycle?.coldStartFirst200Ms), 0)} ms. Contention at start: ${group.map((t) => t.summary.conditions.contentionAtStart?.busyOtherContainers || 'none').join(', ')}.`, '');
+	out.push(`${group.length} uncontended trial(s)${discarded.some((t) => t.config === config) ? ` (${discarded.filter((t) => t.config === config).length} contended trial(s) excluded)` : ''}. Cold start to first 200: ${fmt(group.map((t) => t.summary.conditions.lifecycle?.coldStartFirst200Ms), 0)} ms. Contention at start: ${group.map((t) => t.summary.conditions.contentionAtStart?.busyOtherContainers || 'none').join(', ')}. Host (macOS) cores busy outside the VM, mean per trial: ${group.map((t) => t.host?.nonVmBusyCoresMean ?? '-').join(', ')}.`, '');
 	const header = ['offered rps', 'achieved rps', 'shed', 'p50 ms', 'p99 ms', 'quote p99', 'product p99', 'product hit %', ...components.map((c) => `${c} cores`), 'target CPU ms/req', 'gen CPU'];
 	out.push(`| ${header.join(' | ')} |`, `|${header.map(() => '-').join('|')}|`);
 	const rates = first.steps.map((s) => s.offeredRate);
