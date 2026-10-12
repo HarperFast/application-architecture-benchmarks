@@ -1,0 +1,71 @@
+# Step-0 rough comparison: the Harper reference vs Fastify + Postgres + Redis, ecommerce-store.
+#
+# Both targets, the load generator and the loaders in one compose project, so every container
+# shares one podman machine and is measured in one session. Only ONE target runs during a
+# measurement; scripts/run.sh stops the other first.
+#
+#   fastify-postgres-redis   included from ../../implementations (app, postgres, redis, loader)
+#   harper                   extended from the ecommerce-store checkout's own compose service,
+#                            unmodified except for host ports and profile
+#   bench                    the ecommerce-store harness (bench/run.mjs), unmodified, wrapped by
+#                            scripts/bench-wrapper.mjs for per-container CPU accounting
+#
+# Requires .env (scripts/run.sh setup writes it): ECOMMERCE_STORE_DIR and local Harper test
+# credentials.
+
+name: aab-ecommerce-rough
+
+include:
+  - path: ../../implementations/fastify-postgres-redis/compose.yaml
+
+services:
+  harper:
+    extends:
+      file: ${ECOMMERCE_STORE_DIR:?run scripts/run.sh setup}/containers/compose.yaml
+      service: harper
+    # Published for conformance and diff runs from the host only; the measured generator uses
+    # the bridge. Distinct from the 9925/9926 another project on this machine already uses.
+    ports: !override
+      - "${HARPER_HOST_PORT:-39936}:9926"
+    profiles: [harper]
+
+  harper-loader:
+    image: docker.io/library/node:24.21.0-slim
+    working_dir: /work
+    command: ["node", "scripts/load-dataset.mjs", "--scale", "dev", "--url", "http://harper:9925"]
+    environment:
+      HDB_ADMIN_USERNAME: ${HDB_ADMIN_USERNAME:-benchadmin}
+      HDB_ADMIN_PASSWORD: ${HDB_ADMIN_PASSWORD}
+    volumes:
+      - ${ECOMMERCE_STORE_DIR}:/work:ro
+    networks: [bench]
+    profiles: [tools]
+
+  bench:
+    image: docker.io/library/node:24.21.0-slim
+    working_dir: /work
+    entrypoint: ["node", "/cmp/bench-wrapper.mjs"]
+    environment:
+      HDB_ADMIN_USERNAME: ${HDB_ADMIN_USERNAME:-benchadmin}
+      HDB_ADMIN_PASSWORD: ${HDB_ADMIN_PASSWORD}
+    volumes:
+      - ${ECOMMERCE_STORE_DIR}:/work:ro
+      - ./scripts:/cmp:ro
+      - ${RESULTS_DIR:-./results/raw}:/results
+      # Read-only view of the machine's cgroup tree, for per-container CPU accounting.
+      - /sys/fs/cgroup:/host/cgroup:ro
+    networks: [store, bench]
+    # Outside the target's budget, as in the reference's compose.
+    deploy:
+      resources:
+        limits:
+          cpus: "${BENCH_CPUS:-2}"
+          memory: "${BENCH_MEMORY:-1g}"
+    profiles: [tools]
+
+networks:
+  bench:
+    driver: bridge
+
+volumes:
+  harper-data:

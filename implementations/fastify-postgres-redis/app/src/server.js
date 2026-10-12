@@ -28,7 +28,17 @@ if (cluster.isPrimary && config.workers > 1) {
 	process.on('SIGTERM', stop);
 	process.on('SIGINT', stop);
 } else {
-	const app = await buildApp();
+	// Postgres and Redis may still be starting (cold start launches all three services at once),
+	// so retry until both answer rather than failing and being restarted.
+	let app;
+	for (const deadline = Date.now() + 120_000; !app; ) {
+		try {
+			app = await buildApp();
+		} catch (error) {
+			if (Date.now() > deadline) throw error;
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		}
+	}
 	await app.listen({ port: config.port, host: config.host });
 	const stop = async () => {
 		await app.close();

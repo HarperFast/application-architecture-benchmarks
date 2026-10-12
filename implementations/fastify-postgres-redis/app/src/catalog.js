@@ -18,7 +18,12 @@ import { SQL, query, toCart, toCustomer, toProduct, toRate, toVariant, toPromoti
 
 const byKey = (rows, map, key) => new Map(rows.map((row) => [row[key], map(row)]));
 
-export function createCatalog({ pool, redis, counters }) {
+/**
+ * @param {{pool, redis, counters, cached?: boolean}} deps  `cached: false` reads every entity
+ *   straight from Postgres. Used only by the /__audit routes, which compare a cached answer with
+ *   one computed from the source of truth (CACHE-001), never by the endpoints under test.
+ */
+export function createCatalog({ pool, redis, counters, cached = true }) {
 	const loadCarts = async (ids) => byKey((await query(pool, SQL.carts, [ids])).rows, toCart, 'id');
 	const loadCustomers = async (ids) => byKey((await query(pool, SQL.customers, [ids])).rows, toCustomer, 'id');
 	const loadProducts = async (ids) => byKey((await query(pool, SQL.products, [ids])).rows, toProduct, 'id');
@@ -27,6 +32,11 @@ export function createCatalog({ pool, redis, counters }) {
 	let statics = null;
 
 	return {
+		/** Share the static tables of an initialized catalog instead of reading them again. */
+		shareStatics(other) {
+			statics = other.statics();
+		},
+		statics: () => statics,
 		/** Load locations and rates. Called once before the worker accepts traffic. */
 		async init() {
 			const [locations, rates] = await Promise.all([query(pool, SQL.locations, []), query(pool, SQL.rates, [])]);
@@ -49,10 +59,10 @@ export function createCatalog({ pool, redis, counters }) {
 		regions: () => [...statics.locationsByRegion.keys()],
 		rates: () => statics.rates,
 
-		carts: (ids) => getEntities(redis, counters, 'cart', ids, loadCarts),
-		customers: (ids) => getEntities(redis, counters, 'customer', ids, loadCustomers),
-		products: (ids) => getEntities(redis, counters, 'product', ids, loadProducts),
-		variants: (ids) => getEntities(redis, counters, 'variant', ids, loadVariants),
+		carts: (ids) => (cached ? getEntities(redis, counters, 'cart', ids, loadCarts) : loadCarts(ids)),
+		customers: (ids) => (cached ? getEntities(redis, counters, 'customer', ids, loadCustomers) : loadCustomers(ids)),
+		products: (ids) => (cached ? getEntities(redis, counters, 'product', ids, loadProducts) : loadProducts(ids)),
+		variants: (ids) => (cached ? getEntities(redis, counters, 'variant', ids, loadVariants) : loadVariants(ids)),
 
 		/** Map<sku, onHand[]> aligned to `locationIds` order; absent rows are zero. */
 		async inventory(skus, locationIds) {

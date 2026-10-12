@@ -20,10 +20,21 @@ export async function buildApp() {
 	});
 
 	const pool = createPool();
-	const redis = await createRedis();
-	const counters = createCounters(redis);
-	const catalog = createCatalog({ pool, redis, counters });
-	await catalog.init();
+	let redis;
+	let counters;
+	let catalog;
+	try {
+		redis = await createRedis();
+		counters = createCounters(redis);
+		catalog = createCatalog({ pool, redis, counters });
+		await catalog.init();
+	} catch (error) {
+		counters?.stop();
+		await Promise.allSettled([pool.end(), redis?.destroy()]);
+		throw error;
+	}
+	const freshCatalog = createCatalog({ pool, redis, counters, cached: false });
+	freshCatalog.shareStatics(catalog);
 
 	app.addHook('onClose', async () => {
 		counters.stop();
@@ -41,8 +52,8 @@ export async function buildApp() {
 		});
 	});
 
-	await app.register(quoteRoutes, { catalog });
-	await app.register(productRoutes, { catalog, redis, counters });
+	await app.register(quoteRoutes, { catalog, freshCatalog });
+	await app.register(productRoutes, { catalog, freshCatalog, redis, counters });
 	await app.register(adminRoutes, { pool, redis, catalog });
 
 	/** Liveness and readiness: both backing services answer. */
