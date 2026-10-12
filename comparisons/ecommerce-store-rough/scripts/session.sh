@@ -9,7 +9,7 @@
 #   SESSION_TRIALS=3 SPLIT_TRIALS=2 scripts/session.sh
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
-export RATES="${RATES:-400,800,1200,1600,2000,2400,3200,4000,4800,5600,6400}"
+export RATES="${RATES:-400,800,1200,1600,2000,2400,3200,4000,4800,5600,6400,8000}"
 export DURATION="${DURATION:-15}" WARMUP="${WARMUP:-10}"
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 log="results/raw/session-$stamp.log"
