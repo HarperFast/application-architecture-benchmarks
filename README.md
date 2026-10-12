@@ -84,7 +84,7 @@ Local numbers are not publishable results. On macOS, limits apply to the contain
 
 Use a plain VM, not Fabric. Fabric suits Harper but handicaps Postgres. It belongs in tier 3 as the product being tested.
 
-Any staff member can create a GCP project linked to the company billing account and its credits. Reuse provisioning from [`HarperFast/sharded-blob-test`](https://github.com/HarperFast/sharded-blob-test/tree/main/provisioning/gcp) where useful. Provision through the CLI, use a dedicated project to track spend, and tear instances down after each run. GCP is a convenience choice; Linode or another provider is equally valid. Record the provider with the run.
+Provision through the CLI in a dedicated project so spend is attributable, and tear instances down after each run. Include reproducible provisioning steps with the comparison; keep private access and billing details in separate internal documentation. GCP is a convenience choice; Linode or another provider is equally valid. Record the provider with the run.
 
 **Tier 3 — a platform as a service.** Compare Fabric with Supabase, MongoDB Atlas, Redis Cloud, or similar offerings. This tier is optional because tiers 1 and 2 suffice for a publishable stack comparison, but it is expected for most comparisons and is the only tier supporting claims naming a company. See [Platform as a service comparisons](#platform-as-a-service-comparisons).
 
