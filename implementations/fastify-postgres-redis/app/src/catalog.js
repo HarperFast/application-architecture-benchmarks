@@ -10,54 +10,74 @@
  *                                     staleness matters most; read from Postgres per request.
  *   promotion                         NOT cached. Candidate collection is part of the measured
  *                                     fan-out, as in the reference; one GIN-indexed query.
- *   location, rate                    Loaded once per worker at startup. 8 and 22 rows, never
- *                                     written by any surface (the reference does the same).
+ *   location, rate                    Held in each worker's memory, re-read every LOOKUP_REFRESH_MS
+ *                                     (half of FRESH_MS). 8 and 22 rows; no application path writes
+ *                                     them, but they are writable in Postgres, and CACHE-002 bounds
+ *                                     every cached value. The reference bounds its memos the same way.
  */
 import { getEntities } from './cache.js';
 import { SQL, query, toCart, toCustomer, toProduct, toRate, toVariant, toPromotion } from './db.js';
 
 const byKey = (rows, map, key) => new Map(rows.map((row) => [row[key], map(row)]));
 
+/** Re-read interval for the in-memory lookup tables: half of FRESH_MS (CACHE-002). */
+export const LOOKUP_REFRESH_MS = 500;
+
 /**
- * @param {{pool, redis, counters, cached?: boolean}} deps  `cached: false` reads every entity
+ * Locations and rates, held per worker and re-read on an interval so no copy is older than
+ * LOOKUP_REFRESH_MS plus one read. A failed re-read keeps the previous copy and is logged; it
+ * does not fail requests.
+ */
+export function createStatics(pool) {
+	let value = null;
+	let timer = null;
+	const load = async () => {
+		const [locations, rates] = await Promise.all([query(pool, SQL.locations, []), query(pool, SQL.rates, [])]);
+		if (!locations.rows.length || !rates.rows.length) {
+			throw new Error('location or rate table is empty; load the dataset before starting the app');
+		}
+		const locationsByRegion = new Map();
+		const regionOfLocation = new Map();
+		for (const row of locations.rows) {
+			if (!locationsByRegion.has(row.region)) locationsByRegion.set(row.region, []);
+			locationsByRegion.get(row.region).push(row.id); // ordered by priority, then id
+			regionOfLocation.set(row.id, row.region);
+		}
+		value = { locationsByRegion, regionOfLocation, regions: [...locationsByRegion.keys()], rates: rates.rows.map(toRate) };
+	};
+	return {
+		/** Load once (before the worker accepts traffic), then keep re-reading. */
+		async start() {
+			await load();
+			timer = setInterval(() => load().catch((error) => console.error('lookup table refresh failed', error.message)), LOOKUP_REFRESH_MS);
+			timer.unref();
+		},
+		stop: () => clearInterval(timer),
+		current: () => value,
+	};
+}
+
+/**
+ * @param {{pool, redis, counters, statics, cached?: boolean}} deps  `cached: false` reads every entity
  *   straight from Postgres. Used only by the /__audit routes, which compare a cached answer with
  *   one computed from the source of truth (CACHE-001), never by the endpoints under test.
  */
-export function createCatalog({ pool, redis, counters, cached = true }) {
+export function createCatalog({ pool, redis, counters, statics, cached = true }) {
 	const loadCarts = async (ids) => byKey((await query(pool, SQL.carts, [ids])).rows, toCart, 'id');
 	const loadCustomers = async (ids) => byKey((await query(pool, SQL.customers, [ids])).rows, toCustomer, 'id');
 	const loadProducts = async (ids) => byKey((await query(pool, SQL.products, [ids])).rows, toProduct, 'id');
 	const loadVariants = async (ids) => byKey((await query(pool, SQL.variants, [ids])).rows, toVariant, 'sku');
 
-	let statics = null;
+	const current = () => statics.current();
 
 	return {
-		/** Share the static tables of an initialized catalog instead of reading them again. */
-		shareStatics(other) {
-			statics = other.statics();
-		},
-		statics: () => statics,
-		/** Load locations and rates. Called once before the worker accepts traffic. */
-		async init() {
-			const [locations, rates] = await Promise.all([query(pool, SQL.locations, []), query(pool, SQL.rates, [])]);
-			const locationsByRegion = new Map();
-			const regionOfLocation = new Map();
-			for (const row of locations.rows) {
-				if (!locationsByRegion.has(row.region)) locationsByRegion.set(row.region, []);
-				locationsByRegion.get(row.region).push(row.id); // already ordered by priority, then id
-				regionOfLocation.set(row.id, row.region);
-			}
-			if (!locations.rows.length || !rates.rows.length) {
-				throw new Error('location or rate table is empty; load the dataset before starting the app');
-			}
-			statics = { locationsByRegion, regionOfLocation, rates: rates.rows.map(toRate) };
-		},
 		/** Location ids in a region, ascending priority (QUOTE-003). */
-		locationsIn: (region) => statics.locationsByRegion.get(region) ?? [],
-		regionOf: (locationId) => statics.regionOfLocation.get(locationId),
+		locationsIn: (region) => current().locationsByRegion.get(region) ?? [],
+		regionOf: (locationId) => current().regionOfLocation.get(locationId),
 		/** Every region with a fulfillment location. */
-		regions: () => [...statics.locationsByRegion.keys()],
-		rates: () => statics.rates,
+		regions: () => current().regions,
+		hasRegion: (region) => current().locationsByRegion.has(region),
+		rates: () => current().rates,
 
 		carts: (ids) => (cached ? getEntities(redis, counters, 'cart', ids, loadCarts) : loadCarts(ids)),
 		customers: (ids) => (cached ? getEntities(redis, counters, 'customer', ids, loadCustomers) : loadCustomers(ids)),

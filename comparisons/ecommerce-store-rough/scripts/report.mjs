@@ -28,16 +28,16 @@ const all = files.map((file) => {
 	} catch {}
 	return { file: basename(file), config, summary: s, host, contended: s.steps.some((step) => step.cpu?.contended) };
 });
-// A trial during which another container on the machine was busy is contaminated: excluded,
-// and counted in the report.
-const trials = all.filter((t) => !t.contended);
+// A STEP during which another container on the machine was busy is contaminated and excluded;
+// the trial's other steps still count. Each row reports how many clean observations it rests on.
+const trials = all;
 const discarded = all.filter((t) => t.contended);
 
 function unchargedVmCores(step) {
 	const cpu = step.cpu;
 	if (!cpu?.machineCoresBusy || cpu.generatorContainerCores === null || cpu.generatorContainerCores === undefined) return null;
 	const target = cpu.perGroup.budget ? cpu.perGroup.budget.cpuUtilization : Object.values(cpu.perGroup).reduce((a, g) => a + g.cpuUtilization, 0);
-	return +(cpu.machineCoresBusy.busy - target - cpu.generatorContainerCores - (cpu.unattributedContainerCores ?? 0)).toFixed(3);
+	return +(cpu.machineCoresBusy.busy - target - cpu.generatorContainerCores - (cpu.unattributedContainerCores ?? 0) - (cpu.vmServicesCores ?? 0)).toFixed(3);
 }
 
 const median = (xs) => {
@@ -56,7 +56,7 @@ const fmt = (xs, digits = 1) => {
 
 const configs = [...new Set(trials.map((t) => t.config))];
 const out = [];
-const compact = { session: basename(logPath), discardedContendedTrials: discarded.map((t) => t.file), configs: {} };
+const compact = { session: basename(logPath), trialsWithContendedSteps: discarded.map((t) => t.file), configs: {} };
 
 for (const config of configs) {
 	const group = trials.filter((t) => t.config === config);
@@ -70,6 +70,7 @@ for (const config of configs) {
 			host: t.host,
 			contention: t.summary.conditions.contentionAtStart?.busyOtherContainers ?? null,
 			steps: t.summary.steps.map((s) => ({
+				contended: !!s.cpu?.contended,
 				offered: s.offeredRate, achieved: s.achievedRate, shed: s.shed, errors: s.errors,
 				p50: s.p50, p90: s.p90, p99: s.p99, quoteP99: s.quote.p99, productP99: s.product.p99,
 				productCacheHitRate: s.productCacheHitRate, invalidations: s.invalidations, writeFailures: s.writeFailures,
@@ -90,19 +91,24 @@ for (const config of configs) {
 	};
 
 	out.push(`### ${config}`, '');
-	out.push(`${group.length} uncontended trial(s)${discarded.some((t) => t.config === config) ? ` (${discarded.filter((t) => t.config === config).length} contended trial(s) excluded)` : ''}. Cold start to first 200: ${fmt(group.map((t) => t.summary.conditions.lifecycle?.coldStartFirst200Ms), 0)} ms. Contention at start: ${group.map((t) => t.summary.conditions.contentionAtStart?.busyOtherContainers || 'none').join(', ')}. Host (macOS) cores busy outside the VM, mean per trial: ${group.map((t) => t.host?.nonVmBusyCoresMean ?? '-').join(', ')}.`, '');
-	const header = ['offered rps', 'achieved rps', 'shed', 'p50 ms', 'p99 ms', 'quote p99', 'product p99', 'product hit %', ...components.map((c) => `${c} cores`), 'target CPU ms/req', 'uncharged VM cores', 'gen CPU'];
+	out.push(`${group.length} trial(s), ${group.filter((t) => t.contended).length} with at least one contended step (those steps excluded; n = clean observations per row). Cold start to first 200: ${fmt(group.map((t) => t.summary.conditions.lifecycle?.coldStartFirst200Ms), 0)} ms. Contention at start: ${group.map((t) => t.summary.conditions.contentionAtStart?.busyOtherContainers || 'none').join(', ')}. Host (macOS) cores busy outside the VM, mean per trial: ${group.map((t) => t.host?.nonVmBusyCoresMean ?? '-').join(', ')}.`, '');
+	const header = ['offered rps', 'n', 'achieved rps', 'shed', 'p50 ms', 'p99 ms', 'quote p99', 'product p99', 'product hit %', ...components.map((c) => `${c} cores`), 'target CPU ms/req', 'uncharged VM cores', 'gen CPU'];
 	out.push(`| ${header.join(' | ')} |`, `|${header.map(() => '-').join('|')}|`);
 	const rates = first.steps.map((s) => s.offeredRate);
 	for (const rate of rates) {
-		const steps = group.map((t) => t.summary.steps.find((s) => s.offeredRate === rate)).filter(Boolean);
+		const steps = group.map((t) => t.summary.steps.find((s) => s.offeredRate === rate)).filter((s) => s && !s.cpu?.contended);
+		if (!steps.length) {
+			out.push(`| ${rate} | 0 | ${header.slice(2).map(() => '-').join(' | ')} |`);
+			continue;
+		}
 		const throttle = (c) => {
 			const t = steps.map((s) => s.cpu?.perGroup[c]?.throttledSeconds ?? 0);
-			return Math.max(...t) > 0 ? ` (thr ${fmt(t)}s)` : '';
+			return Math.max(...t) >= 0.05 ? ` (thr ${fmt(t)}s)` : '';
 		};
 		out.push(
 			`| ${[
 				rate,
+				steps.length,
 				fmt(steps.map((s) => s.achievedRate)),
 				fmt(steps.map((s) => s.shed), 0),
 				fmt(steps.map((s) => s.p50)),

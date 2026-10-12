@@ -15,7 +15,12 @@
 # Networking: one user-defined bridge, as for the reference. Only the app is published to the
 # host, for conformance runs; Postgres and Redis are reachable only on the bridge.
 #
-#   docker compose up -d --build                      # postgres, redis, app
+# No healthchecks, deliberately: a compose healthcheck execs a probe INSIDE the container every
+# interval, charged to the budget under measurement for the whole run (the reference dropped
+# its own for the same reason). The app and the loader retry until Postgres and Redis answer,
+# and readiness is probed from outside.
+#
+#   docker compose up -d --build                      # postgres, redis, app (app retries until both answer)
 #   DATASET_DIR=/path/to/ecommerce-store/dataset/dev \
 #     docker compose run --rm loader                  # verify + load (not measured)
 
@@ -46,11 +51,6 @@ services:
         limits:
           cpus: "${PG_CPUS:-0.5}"
           memory: "${PG_MEMORY_MIB:-1024}m"
-    healthcheck:
-      test: ["CMD", "pg_isready", "-U", "store", "-d", "store"]
-      interval: 2s
-      timeout: 3s
-      retries: 60
 
   redis:
     image: docker.io/library/redis:8.10.2-trixie
@@ -64,11 +64,6 @@ services:
         limits:
           cpus: "${REDIS_CPUS:-0.25}"
           memory: "${REDIS_MEMORY_MIB:-384}m"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 2s
-      timeout: 3s
-      retries: 60
 
   app:
     build: ./app
@@ -83,20 +78,12 @@ services:
       - "${APP_HOST_PORT:-39926}:3000"
     networks: [store]
     cgroup_parent: ${BUDGET_CGROUP_PARENT:-}
-    depends_on:
-      postgres: { condition: service_healthy }
-      redis: { condition: service_healthy }
+    depends_on: [postgres, redis]
     deploy:
       resources:
         limits:
           cpus: "${APP_CPUS:-1.25}"
           memory: "${APP_MEMORY_MIB:-640}m"
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-      interval: 2s
-      timeout: 3s
-      retries: 60
-      start_period: 5s
 
   # Seeding is not measured and runs outside the target's budget.
   loader:
@@ -109,9 +96,7 @@ services:
       # Point DATASET_DIR at an ecommerce-store dataset directory (e.g. .../ecommerce-store/dataset/dev).
       - ${DATASET_DIR:-./DATASET_DIR-not-set}:/dataset:ro
     networks: [store]
-    depends_on:
-      postgres: { condition: service_healthy }
-      redis: { condition: service_healthy }
+    depends_on: [postgres, redis]
     profiles: [tools]
 
 networks:

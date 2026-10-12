@@ -52,8 +52,9 @@ services:
       - ${ECOMMERCE_STORE_DIR}:/work:ro
       - ./scripts:/cmp:ro
       - ${RESULTS_DIR:-./results/raw}:/results
-      # Read-only view of the machine's cgroup tree, for per-container CPU accounting.
-      - /sys/fs/cgroup:/host/cgroup:ro
+      # Read-only view of the machine's cgroup tree, for per-container CPU accounting (the
+      # harness's --target-cgroups and the wrapper both read it here).
+      - /sys/fs/cgroup:/host-cgroup:ro
     networks: [store, bench]
     # Outside the target's budget, as in the reference's compose.
     deploy:

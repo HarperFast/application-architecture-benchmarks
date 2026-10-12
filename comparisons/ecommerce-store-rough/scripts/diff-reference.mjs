@@ -80,6 +80,8 @@ for (const id of ids('product', 'id')) {
 }
 requests.push({ kind: 'quote', method: 'POST', path: '/cart/no-such-cart/quote' });
 requests.push({ kind: 'product', method: 'GET', path: '/product/no-such-product?tier=standard&region=us-east' });
+requests.push({ kind: 'product', method: 'GET', path: '/product/product-000001?tier=standard&region=no-such-region' });
+requests.push({ kind: 'product', method: 'GET', path: '/product/product-000001' });
 
 const result = { a: A, b: B, compared: 0, equal: 0, statusMismatch: 0, bodyMismatch: 0, byKind: {}, examples: [] };
 let next = 0;

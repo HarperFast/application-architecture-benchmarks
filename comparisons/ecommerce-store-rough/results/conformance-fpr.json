@@ -3,10 +3,10 @@
   "suite": {
     "repo": "ecommerce-store",
     "path": "e2e/",
-    "commit": "1b99341c7c71a24bb78ff67b882c37f390cf8090",
+    "commit": "1f4a350d77c42e3ef7e489120af841af089531d2",
     "playwright": "1.63.0"
   },
-  "ranAt": "2026-10-12T17:53:03.094Z",
+  "ranAt": "2026-10-12T19:31:26.269Z",
   "passed": 24,
   "failed": 0,
   "skipped": 0,
@@ -45,7 +45,7 @@
         "CACHE-001"
       ],
       "status": "passed",
-      "durationMs": 128,
+      "durationMs": 89,
       "error": null
     },
     {
@@ -55,7 +55,7 @@
         "CACHE-003"
       ],
       "status": "passed",
-      "durationMs": 200,
+      "durationMs": 97,
       "error": null
     },
     {
@@ -66,18 +66,18 @@
         "OBS-002"
       ],
       "status": "passed",
-      "durationMs": 211,
+      "durationMs": 79,
       "error": null
     },
     {
       "file": "cache.api.spec.ts",
-      "title": "[OBS-001 OBS-003] Server-Timing decomposes data access and total",
+      "title": "[OBS-001 OBS-003] Server-Timing decomposes data access, compute and total, on a miss and a hit",
       "requirements": [
         "OBS-001",
         "OBS-003"
       ],
       "status": "passed",
-      "durationMs": 187,
+      "durationMs": 82,
       "error": null
     },
     {
@@ -87,7 +87,7 @@
         "WRITE-002"
       ],
       "status": "passed",
-      "durationMs": 194,
+      "durationMs": 83,
       "error": null
     },
     {
@@ -97,7 +97,7 @@
         "OBS-001"
       ],
       "status": "passed",
-      "durationMs": 187,
+      "durationMs": 87,
       "error": null
     },
     {
@@ -107,7 +107,7 @@
         "QUOTE-004"
       ],
       "status": "passed",
-      "durationMs": 686,
+      "durationMs": 845,
       "error": null
     },
     {
@@ -117,7 +117,7 @@
         "PDP-002"
       ],
       "status": "passed",
-      "durationMs": 21,
+      "durationMs": 35,
       "error": null
     },
     {
@@ -127,7 +127,7 @@
         "PDP-003"
       ],
       "status": "passed",
-      "durationMs": 35,
+      "durationMs": 55,
       "error": null
     },
     {
@@ -137,7 +137,7 @@
         "PDP-004"
       ],
       "status": "passed",
-      "durationMs": 10,
+      "durationMs": 23,
       "error": null
     },
     {
@@ -147,7 +147,7 @@
         "PDP-001"
       ],
       "status": "passed",
-      "durationMs": 8,
+      "durationMs": 15,
       "error": null
     },
     {
@@ -157,7 +157,7 @@
         "PDP-005"
       ],
       "status": "passed",
-      "durationMs": 14,
+      "durationMs": 21,
       "error": null
     },
     {
@@ -167,7 +167,7 @@
         "QUOTE-001"
       ],
       "status": "passed",
-      "durationMs": 242,
+      "durationMs": 380,
       "error": null
     },
     {
@@ -177,7 +177,7 @@
         "QUOTE-003"
       ],
       "status": "passed",
-      "durationMs": 430,
+      "durationMs": 616,
       "error": null
     },
     {
@@ -187,7 +187,7 @@
         "QUOTE-005"
       ],
       "status": "passed",
-      "durationMs": 513,
+      "durationMs": 672,
       "error": null
     },
     {
@@ -197,7 +197,7 @@
         "QUOTE-006"
       ],
       "status": "passed",
-      "durationMs": 751,
+      "durationMs": 956,
       "error": null
     },
     {
@@ -207,7 +207,7 @@
         "QUOTE-007"
       ],
       "status": "passed",
-      "durationMs": 811,
+      "durationMs": 977,
       "error": null
     },
     {
@@ -217,7 +217,7 @@
         "DATA-002"
       ],
       "status": "passed",
-      "durationMs": 338,
+      "durationMs": 383,
       "error": null
     },
     {
@@ -227,7 +227,7 @@
         "QUOTE-002"
       ],
       "status": "passed",
-      "durationMs": 200,
+      "durationMs": 247,
       "error": null
     },
     {
@@ -237,7 +237,7 @@
         "QUOTE-011"
       ],
       "status": "passed",
-      "durationMs": 197,
+      "durationMs": 227,
       "error": null
     },
     {
@@ -247,7 +247,7 @@
         "QUOTE-012"
       ],
       "status": "passed",
-      "durationMs": 121,
+      "durationMs": 145,
       "error": null
     },
     {
@@ -257,7 +257,7 @@
         "QUOTE-008"
       ],
       "status": "passed",
-      "durationMs": 10,
+      "durationMs": 12,
       "error": null
     },
     {
@@ -267,7 +267,7 @@
         "QUOTE-009"
       ],
       "status": "passed",
-      "durationMs": 8,
+      "durationMs": 6,
       "error": null
     },
     {
@@ -277,7 +277,7 @@
         "QUOTE-010"
       ],
       "status": "passed",
-      "durationMs": 9,
+      "durationMs": 16,
       "error": null
     }
   ]

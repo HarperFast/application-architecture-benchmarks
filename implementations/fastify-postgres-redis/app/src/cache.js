@@ -19,10 +19,9 @@
  *
  *   - Entities: the fill stores only if the generation is unchanged (Lua compare-and-set).
  *   - Product aggregates: the generations a view was built under are stored WITH it, and a read
- *     serves the view only if they still match the current ones (fetched in the same MGET). This
- *     also covers keys a write cannot enumerate: a view cached under a tier or region outside the
- *     dataset's vocabulary is still invalidated, because validity is checked against
- *     per-product (price) and per-product-region (inventory) generations, not by key deletion.
+ *     serves the view only if they still match the current ones (fetched in the same MGET).
+ *     Validity is checked against per-product (price) and per-product-region (inventory)
+ *     generations, so it does not depend on the write surface deleting every key it affected.
  *
  * Generation keys outlive every cached value (GEN_TTL > VIEW_TTL, ENTITY_TTL, and many times the
  * Postgres statement timeout that bounds a fill), and tokens are unique, so expiry or eviction of

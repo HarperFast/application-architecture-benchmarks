@@ -2,7 +2,7 @@
 
 An implementation of the [ecommerce-store](https://github.com/HarperFast/ecommerce-store) application specification (`SPEC.md` `0.2.0-draft`) on a separated stack: a Fastify HTTP service, PostgreSQL as the source of truth, and Redis as the cache. It is the first competing implementation for the Harper reference, built for the step-0 rough comparison in [`comparisons/ecommerce-store-rough`](../../comparisons/ecommerce-store-rough). Nothing produced from it is a published result; see the [methodology](../../README.md).
 
-The specification, dataset, conformance suite and load harness live in the ecommerce-store repository and are used from a checkout of it, never copied here.
+The specification, dataset, conformance suite and load harness live in the ecommerce-store repository and are used from a checkout of it, never copied here. The contract this implementation is built and checked against is ecommerce-store's `harper-5.3` branch (`SPEC.md`, `packages/spec`, `e2e/`, `scripts/verify-coherence.mjs`, and the harness), which fixes harness measurement bugs and several reference behaviours relative to `main`; the commit used is recorded with every run.
 
 ## Versions
 
@@ -20,7 +20,7 @@ All versions were the latest stable releases on 2026-10-12, checked against npm,
 
 ## Topology and budget
 
-Three containers on one user-defined bridge network, plain HTTP, named volume for Postgres (never tmpfs):
+Three containers on one user-defined bridge network, plain HTTP, named volume for Postgres (never tmpfs). No compose healthchecks: a healthcheck execs a probe inside the container every interval, charged to the budget under measurement (the reference dropped its own for the same reason); readiness is probed from outside.
 
 | Service | Process | Memory limit |
 |-|-|-|
@@ -40,7 +40,7 @@ Standalone, `compose.yaml` applies the split; `BUDGET_CGROUP_PARENT` points the 
 Requires Podman or Docker with Compose, and a checkout of ecommerce-store (the dev dataset is plain git; no LFS needed).
 
 ```bash
-docker compose up -d --build --wait postgres redis app
+docker compose up -d --build postgres redis app   # the app retries until Postgres and Redis answer
 DATASET_DIR=/path/to/ecommerce-store/dataset/dev docker compose run --rm loader
 curl -s -X POST localhost:39926/cart/cart-000042/quote -H 'content-type: application/json' -d '{}'
 curl -s 'localhost:39926/product/product-000001?tier=gold&region=us-east'
@@ -68,7 +68,7 @@ For the full lifecycle (snapshot restore, cold start, the measured ladder, per-c
 | `GET /__meta` | Loaded dataset manifest, component versions, configuration. |
 | `GET /__audit/product/:id`, `POST /__audit/cart/:id/quote` | The same responses computed from Postgres alone, bypassing every cache. Used only by the coherence audit, never by the harness. |
 
-Errors use SPEC's `ApiError` shape. Unknown cart or product: 404. Unknown SKU in a cart (QUOTE-002) or a cart naming an unknown customer: 400. An unknown `tier` prices as `standard` (SPEC.md "Resolved unit price"); an unknown `region` has no fulfillment locations and so no availability.
+Errors use SPEC's `ApiError` shape. Unknown cart or product: 404. Unknown SKU in a cart (QUOTE-002) or a cart naming an unknown customer: 400. On the product aggregate, a `tier` outside the normative table resolves as `standard` (SPEC.md "Resolved unit price") and is served under the `standard` cache key; a `region` with no fulfillment location is a 400. Both match the reference, and keep the cache key space bounded to values the write surface invalidates.
 
 ## Data model (DATA-001)
 
@@ -96,7 +96,7 @@ The loader verifies every file's sha256 and row count against `MANIFEST.json` be
 |-|-|-|-|
 | Entity cache | `e:{cart,customer,product,variant}:<id>` | cache-aside on miss, one `MGET` per wave, misses batched into one `= ANY($1)` query | price write deletes the variant; carts, customers and products have no write surface |
 | Product aggregate | `pdp:<product>:<tier>:<region>` | assembled on miss, serialized once, stored as bytes | price write: all 16 tier x region views of the product; inventory write: the 4 tier views of that location's region |
-| Static tables | `location`, `rate` in each worker's memory | at startup | never written by any surface (the reference does the same) |
+| Lookup tables | `location`, `rate` in each worker's memory | at startup, then re-read every 500 ms | bounded by expiry at half of `FRESH_MS`: no application path writes them, but they are writable in Postgres (the reference bounds its memos the same way) |
 
 Not cached: inventory (the most write-hot entity, read from Postgres on every quote) and promotions (candidate collection stays part of the measured fan-out, one GIN-indexed query per quote, as in the reference).
 
@@ -105,7 +105,7 @@ Not cached: inventory (the most write-hot entity, read from Postgres on every qu
 Plain cache-aside has a refill race that can leave a stale value in place until expiry. Every invalidation therefore also sets a fresh unique token on a generation key:
 
 - an entity fill reads the generation before reading Postgres and stores only if it is unchanged (a Lua compare-and-set);
-- an aggregate is stored together with the generations it was built under, and a read serves it only if they still match (fetched in the same `MGET`). Generations are per product (price) and per product x region (inventory), so a view cached under a tier or region outside the dataset's vocabulary is invalidated too, which deleting known keys alone could not do.
+- an aggregate is stored together with the generations it was built under, and a read serves it only if they still match (fetched in the same `MGET`). Generations are per product (price) and per product x region (inventory), so a view's validity never depends on the write surface having deleted every key it affected.
 
 Redis has no persistence (`save ""`, no AOF); `allkeys-lru` with `maxmemory 256mb`. Responses carry `Server-Timing: cache;desc=hit|miss, data;dur, compute;dur, total;dur`; the quote always reports `miss`. Per-cache hit and miss counters are kept in the Redis hash `stats:cache`.
 

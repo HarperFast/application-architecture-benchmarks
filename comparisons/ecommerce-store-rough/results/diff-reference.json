@@ -1,9 +1,9 @@
 {
   "a": "http://localhost:39936",
   "b": "http://localhost:39926",
-  "compared": 42002,
-  "equal": 41976,
-  "statusMismatch": 26,
+  "compared": 42004,
+  "equal": 42004,
+  "statusMismatch": 0,
   "bodyMismatch": 0,
   "byKind": {
     "quote": {
@@ -12,115 +12,10 @@
       "mismatched": 0
     },
     "product": {
-      "compared": 40001,
-      "equal": 39975,
-      "mismatched": 26
+      "compared": 40003,
+      "equal": 40003,
+      "mismatched": 0
     }
   },
-  "examples": [
-    {
-      "request": "GET /product/product-000914?tier=standard&region=us-west",
-      "difference": "status 500 != 200"
-    },
-    {
-      "request": "GET /product/product-000914?tier=unlisted-tier&region=us-west",
-      "difference": "status 500 != 200"
-    },
-    {
-      "request": "GET /product/product-000914?tier=silver&region=us-west",
-      "difference": "status 500 != 200"
-    },
-    {
-      "request": "GET /product/product-000914?tier=gold&region=us-west",
-      "difference": "status 500 != 200"
-    },
-    {
-      "request": "GET /product/product-000914?tier=platinum&region=us-west",
-      "difference": "status 500 != 200"
-    },
-    {
-      "request": "GET /product/product-001113?tier=standard&region=us-west",
-      "difference": "status 500 != 200"
-    },
-    {
-      "request": "GET /product/product-001194?tier=standard&region=us-west",
-      "difference": "status 500 != 200"
-    },
-    {
-      "request": "GET /product/product-001194?tier=standard&region=us-east",
-      "difference": "status 500 != 200"
-    },
-    {
-      "request": "GET /product/product-001209?tier=standard&region=eu-central",
-      "difference": "status 500 != 200"
-    },
-    {
-      "request": "GET /product/product-001209?tier=standard&region=apac",
-      "difference": "status 500 != 200"
-    },
-    {
-      "request": "GET /product/product-001209?tier=silver&region=us-west",
-      "difference": "status 500 != 200"
-    },
-    {
-      "request": "GET /product/product-001209?tier=silver&region=eu-central",
-      "difference": "status 500 != 200"
-    },
-    {
-      "request": "GET /product/product-001209?tier=gold&region=us-east",
-      "difference": "status 500 != 200"
-    },
-    {
-      "request": "GET /product/product-001242?tier=standard&region=eu-central",
-      "difference": "status 500 != 200"
-    },
-    {
-      "request": "GET /product/product-001319?tier=standard&region=us-east",
-      "difference": "status 500 != 200"
-    },
-    {
-      "request": "GET /product/product-001353?tier=standard&region=eu-central",
-      "difference": "status 500 != 200"
-    },
-    {
-      "request": "GET /product/product-001353?tier=standard&region=us-west",
-      "difference": "status 500 != 200"
-    },
-    {
-      "request": "GET /product/product-001569?tier=standard&region=us-east",
-      "difference": "status 500 != 200"
-    },
-    {
-      "request": "GET /product/product-001739?tier=standard&region=us-east",
-      "difference": "status 500 != 200"
-    },
-    {
-      "request": "GET /product/product-001792?tier=standard&region=eu-central",
-      "difference": "status 500 != 200"
-    },
-    {
-      "request": "GET /product/product-001793?tier=standard&region=us-east",
-      "difference": "status 500 != 200"
-    },
-    {
-      "request": "GET /product/product-001827?tier=standard&region=us-east",
-      "difference": "status 500 != 200"
-    },
-    {
-      "request": "GET /product/product-001827?tier=silver&region=us-east",
-      "difference": "status 500 != 200"
-    },
-    {
-      "request": "GET /product/product-001835?tier=standard&region=us-west",
-      "difference": "status 500 != 200"
-    },
-    {
-      "request": "GET /product/product-001871?tier=standard&region=us-west",
-      "difference": "status 500 != 200"
-    },
-    {
-      "request": "GET /product/product-001877?tier=standard&region=us-east",
-      "difference": "status 500 != 200"
-    }
-  ]
+  "examples": []
 }

@@ -11,7 +11,7 @@
  */
 import fastJsonStringify from 'fast-json-stringify';
 import { getView, storeView } from '../cache.js';
-import { resolveUnitPrice } from '../pricing.js';
+import { TIER_BASIS_POINTS, resolveUnitPrice } from '../pricing.js';
 import { HttpError, phaseTimer } from '../timing.js';
 
 const rollup = { type: 'object', properties: { averageCentistars: { type: 'integer' }, count: { type: 'integer' } } };
@@ -53,8 +53,20 @@ const serializeView = fastJsonStringify({
 	},
 });
 
-/** Tier and region are free-form tokens: an unknown tier prices as `standard` (SPEC.md), an unknown region has no stock. */
-const token = { type: 'string', pattern: '^[A-Za-z0-9_-]{1,32}$' };
+/**
+ * The cache key may only carry values the write surface invalidates, and the key space must be
+ * bounded. A tier outside the normative table resolves as `standard` (SPEC.md "Resolved unit
+ * price"), so it is served under the `standard` key and says `standard`; a region with no
+ * fulfillment location is refused with 400. Both as the reference does (ecommerce-store
+ * harper-5.3 resources/product.js).
+ */
+const token = { type: 'string', maxLength: 64 };
+function viewDimensions(catalog, query) {
+	const tier = Object.hasOwn(TIER_BASIS_POINTS, query.tier ?? '') ? query.tier : 'standard';
+	const region = query.region ?? 'us-east';
+	if (!catalog.hasRegion(region)) throw new HttpError(400, 'unknown_region', `unknown region: ${region}`);
+	return { tier, region };
+}
 
 /**
  * Assemble one product aggregate from the entity cache and Postgres and serialize it. Returns
@@ -90,8 +102,7 @@ export default async function productRoutes(app, { catalog, freshCatalog, redis,
 	app.get('/product/:id', { schema: { params, querystring } }, async (request, reply) => {
 		const timer = phaseTimer();
 		const productId = request.params.id;
-		const tier = request.query.tier ?? 'standard';
-		const region = request.query.region ?? 'us-east';
+		const { tier, region } = viewDimensions(catalog, request.query);
 
 		const view = await timer.data(getView(redis, productId, tier, region));
 		if (view.json !== null) {
@@ -112,7 +123,8 @@ export default async function productRoutes(app, { catalog, freshCatalog, redis,
 	// neither reading nor filling any cache. A coherent cache serves exactly these bytes.
 	app.get('/__audit/product/:id', { schema: { params, querystring } }, async (request, reply) => {
 		const productId = request.params.id;
-		const json = await assembleProduct(freshCatalog, productId, request.query.tier ?? 'standard', request.query.region ?? 'us-east', phaseTimer());
+		const { tier, region } = viewDimensions(freshCatalog, request.query);
+		const json = await assembleProduct(freshCatalog, productId, tier, region, phaseTimer());
 		if (json === null) throw new HttpError(404, 'product_not_found', `unknown product: ${productId}`);
 		reply.type('application/json; charset=utf-8');
 		return json;

@@ -147,8 +147,29 @@ for (const table of LOAD_ORDER) {
 }
 
 // --- 2. load -----------------------------------------------------------------------------------
-const client = new pg.Client({ connectionString: DATABASE_URL, application_name: 'store-loader' });
-await client.connect();
+// Postgres may still be starting (there are no healthchecks to wait on); retry for a while.
+async function connectWithRetry(connect, what) {
+	for (const deadline = Date.now() + 120_000; ; ) {
+		try {
+			return await connect();
+		} catch (error) {
+			if (Date.now() > deadline) throw new Error(`${what} not reachable: ${error.message}`);
+			await new Promise((resolve) => setTimeout(resolve, 250));
+		}
+	}
+}
+const client = await connectWithRetry(async () => {
+	const c = new pg.Client({ connectionString: DATABASE_URL, application_name: 'store-loader' });
+	c.on('error', () => {});
+	try {
+		await c.connect();
+		await c.query('SELECT 1');
+		return c;
+	} catch (error) {
+		await c.end().catch(() => {});
+		throw error;
+	}
+}, 'Postgres');
 const started = Date.now();
 try {
 	await client.query("SET maintenance_work_mem = '256MB'");
@@ -208,9 +229,12 @@ try {
 await client.end();
 
 // --- 4. drop every derived value ---------------------------------------------------------------
-const redis = createClient({ url: REDIS_URL });
-redis.on('error', (error) => console.error('redis', error.message));
-await redis.connect();
+const redis = await connectWithRetry(async () => {
+	const c = createClient({ url: REDIS_URL, socket: { reconnectStrategy: false } });
+	c.on('error', () => {});
+	await c.connect();
+	return c;
+}, 'Redis');
 await redis.flushAll();
 await redis.close();
 

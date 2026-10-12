@@ -5,7 +5,7 @@ import Fastify, { LogController } from 'fastify';
 import { config } from './config.js';
 import { createPool, query, SQL } from './db.js';
 import { createCounters, createRedis } from './cache.js';
-import { createCatalog } from './catalog.js';
+import { createCatalog, createStatics } from './catalog.js';
 import quoteRoutes from './routes/quote.js';
 import productRoutes from './routes/product.js';
 import adminRoutes from './routes/admin.js';
@@ -20,23 +20,24 @@ export async function buildApp() {
 	});
 
 	const pool = createPool();
+	const statics = createStatics(pool);
 	let redis;
 	let counters;
-	let catalog;
 	try {
 		redis = await createRedis();
 		counters = createCounters(redis);
-		catalog = createCatalog({ pool, redis, counters });
-		await catalog.init();
+		await statics.start();
 	} catch (error) {
 		counters?.stop();
+		statics.stop();
 		await Promise.allSettled([pool.end(), redis?.destroy()]);
 		throw error;
 	}
-	const freshCatalog = createCatalog({ pool, redis, counters, cached: false });
-	freshCatalog.shareStatics(catalog);
+	const catalog = createCatalog({ pool, redis, counters, statics });
+	const freshCatalog = createCatalog({ pool, redis, counters, statics, cached: false });
 
 	app.addHook('onClose', async () => {
+		statics.stop();
 		counters.stop();
 		await counters.flush().catch(() => {});
 		await Promise.allSettled([pool.end(), redis.close()]);

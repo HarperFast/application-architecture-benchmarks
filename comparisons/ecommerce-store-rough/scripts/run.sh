@@ -7,6 +7,7 @@
 #   scripts/run.sh diff                   restore both, compare every quote and product response
 #   scripts/run.sh bench <target>         restore, cold start, warm-up + ladder with per-container CPU
 #   scripts/run.sh audit                  fpr only: cached vs source-of-truth responses, after a run
+#   scripts/run.sh coherence <target>     the reference's verify-coherence.mjs (readers racing writers)
 #   scripts/run.sh stop                   stop every container in this project
 #
 # Targets: `fpr` (Fastify + Postgres + Redis) and `harper` (the reference, built from the
@@ -51,7 +52,10 @@ setup() {
 		} > .env
 		say "wrote .env (ECOMMERCE_STORE_DIR=$es)"
 	fi
+	local override="${ECOMMERCE_STORE_DIR:-}"
 	set -a; . ./.env; set +a
+	if [ -n "$override" ]; then export ECOMMERCE_STORE_DIR="$override"; fi
+	[ -f "$ECOMMERCE_STORE_DIR/bench/cgroups.mjs" ] || { echo "$ECOMMERCE_STORE_DIR predates the cgroup-accounting harness (harper-5.3); point ECOMMERCE_STORE_DIR at a checkout that has it" >&2; exit 1; }
 	export SCALE="${SCALE:-dev}"
 	[ "$SCALE" = dev ] || { echo "only SCALE=dev is wired up in this rough cut" >&2; exit 1; }
 	export DATASET_DIR="$ECOMMERCE_STORE_DIR/dataset/$SCALE"
@@ -105,11 +109,17 @@ load() {
 	stop_target fpr; stop_target harper
 	if [ "$target" = fpr ]; then
 		compose build app
-		compose up -d --wait postgres redis
-		compose run --rm loader
+		compose up -d postgres redis
+		compose run --rm loader # retries until Postgres and Redis answer
 	else
 		compose --profile harper build harper
-		compose --profile harper up -d --wait harper
+		# Seed onto an EMPTY volume. The loader writes through the operations API, which does not
+		# invalidate Harper's derived ProductView; a view left from earlier state (or filled by a
+		# readiness probe before the load) would survive into the snapshot. That happened once.
+		"$CLI" run --rm -v "$(volume_of harper):/data" docker.io/library/postgres:18.6-trixie find /data -mindepth 1 -delete
+		compose --profile harper up -d harper
+		# Probe a path that touches no cache: an empty target answers 404, any status below 500 is up.
+		node "$ECOMMERCE_STORE_DIR/containers/wait-ready.mjs" --accept any --url "http://localhost:$(port_of harper)/" >/dev/null
 		compose run --rm harper-loader
 	fi
 	say "snapshotting $target"
@@ -130,24 +140,20 @@ restore() {
 # Create (or re-create, if the budget changed) the target's containers without starting them, then
 # start every process at once and time the first successful product response: the cold start.
 cold_start() {
-	local target="$1" port t0 code first_any=""
+	local target="$1" port t0 probe
 	port="$(port_of "$target")"
+	probe="http://localhost:$port/product/product-000000?tier=standard&region=us-east"
 	# shellcheck disable=SC2046
 	compose $(profile_of "$target") up --no-start $(services_of "$target") >/dev/null
 	local ctrs=()
 	for s in $(services_of "$target"); do ctrs+=("$(ctr "$s")"); done
 	t0=$(node -e 'console.log(Date.now())')
 	"$CLI" start "${ctrs[@]}" >/dev/null
-	while :; do
-		code=$(curl -s -o /dev/null -m 2 -w '%{http_code}' "http://localhost:$port/product/product-000000?tier=standard&region=us-east" || true)
-		if [ -z "$first_any" ] && [ "${code:-000}" != 000 ] && [ "$code" -lt 500 ]; then first_any=$(node -e "console.log(Date.now()-$t0)"); fi
-		[ "$code" = 200 ] && break
-		[ $(( $(node -e 'console.log(Date.now())') - t0 )) -gt 180000 ] && { echo "cold start timed out" >&2; exit 1; }
-		sleep 0.1
-	done
-	COLD_MS=$(node -e "console.log(Date.now()-$t0)")
-	COLD_ANY_MS="$first_any"
-	say "$target cold start: first status<500 after ${COLD_ANY_MS}ms, first 200 after ${COLD_MS}ms"
+	# The reference orchestrator's probe, from outside the target (no process charged to its
+	# budget): every 25 ms, milliseconds from t0 to the first accepted response.
+	COLD_ANY_MS=""
+	COLD_MS=$(node "$ECOMMERCE_STORE_DIR/containers/wait-ready.mjs" --accept ok --since "$t0" --timeout 180000 --url "$probe")
+	say "$target cold start: first 200 after ${COLD_MS}ms"
 }
 
 # Wait until no container outside this project is busy, so a measurement is not taken under
@@ -180,7 +186,8 @@ wait_for_idle() {
 }
 
 conditions_json() {
-	local target="$1" stamp="$2" file="$RAW/conditions-$target-$stamp.json"
+	local target="$1" stamp="$2"
+	local file="$RAW/conditions-$target-$stamp.json"
 	local others; others=$("$CLI" stats --no-stream --format json 2>/dev/null || echo '[]')
 	local images=""
 	for s in $(services_of "$target"); do images="$images $("$CLI" inspect --format '{{.ImageName}}@{{.Image}}' "$(ctr "$s")")"; done
@@ -188,7 +195,9 @@ conditions_json() {
 		const [file, target, stamp, cold, coldAny, contention, others, images, budget, aabCommit, aabDirty, esCommit, esDirty, machine] = process.argv.slice(1);
 		const env = process.env;
 		const out = {
+			tier: 1,
 			stamp, target,
+			coldStart: { ms: +cold, firstNon5xxMs: coldAny ? +coldAny : null, probe: "host, published port, ecommerce-store containers/wait-ready.mjs (25 ms), every target process started at once" },
 			code: {
 				benchmarksRepo: { commit: aabCommit, dirty: aabDirty === "1" },
 				ecommerceStore: { commit: esCommit, dirty: esDirty === "1" },
@@ -217,7 +226,8 @@ conditions_json() {
 }
 
 post_run_stats() {
-	local target="$1" stamp="$2" file="$RAW/post-$target-$stamp.json"
+	local target="$1" stamp="$2"
+	local file="$RAW/post-$target-$stamp.json"
 	if [ "$target" = fpr ]; then
 		{
 			echo '{"meta":'; curl -s "http://localhost:$(port_of fpr)/__meta"
@@ -253,13 +263,21 @@ bench() {
 		local budget_cgroup=""
 		if [ "$target" = fpr ] && [ "$BUDGET" = shared ]; then budget_cgroup="/machine.slice/$BUDGET_CGROUP_PARENT"; fi
 		local conditions; conditions="$(conditions_json "$target" "$stamp")"
+		# The harness accounts the target's CPU itself from these cgroups (one per container).
+		local target_cgroups="" sep2=""
+		for s in $(services_of "$target"); do target_cgroups="$target_cgroups$sep2$s=$("$CLI" inspect --format '{{.Id}}' "$(ctr "$s")")"; sep2=","; done
 		compose run --rm -e TARGET="$target" -e CGROUPS="$cgroups" -e BUDGET_CGROUP="$budget_cgroup" \
-			-e CONDITIONS="/results/$(basename "$conditions")" bench -- \
-			--url "$(url_in_network "$target")" --dataset "/work/dataset/$SCALE" \
+			-e CODE_COMMIT="$(git -C "$ECOMMERCE_STORE_DIR" rev-parse HEAD)" -e CODE_DIRTY="$([ -n "$(git -C "$ECOMMERCE_STORE_DIR" status --porcelain)" ] && echo 1 || echo 0)" \
+			-e CONDITIONS="/results/$(basename "$conditions")" -e RUN_CONDITIONS="$(cat "$conditions")" bench -- \
+			--url "$(url_in_network "$target")" --dataset "/work/dataset/$SCALE" --target-cgroups "$target_cgroups" \
 			--rates "${RATES:-100,200,400,600,800,1000,1200}" --duration "${DURATION:-15}" --warmup "${WARMUP:-10}" \
 			--out /results --cold-ms "$COLD_MS" | tee "$RAW/console-$target-$stamp.txt"
 		kill "$host_sampler" 2>/dev/null || true
 		post_run_stats "$target" "$stamp" >/dev/null
+		# The reference's run-level checks (DATA-004 is expected to fail on dev; --dev says so).
+		local record; record="$(grep -oE 'run-[0-9TZ-]+\.json' "$RAW/console-$target-$stamp.txt" | tail -1)"
+		(cd "$ECOMMERCE_STORE_DIR" && node scripts/verify-run-record.mjs --dev "$RAW/$record") > "$RAW/verify-$target-$stamp.txt" 2>&1 \
+			&& say "run record verified" || say "run record verification FAILED: $RAW/verify-$target-$stamp.txt"
 		if [ "$target" = fpr ]; then audit | tee -a "$RAW/console-$target-$stamp.txt"; fi
 	done
 }
@@ -289,6 +307,19 @@ diff_reference() {
 	stop_target harper
 }
 
+# The reference's stack-neutral coherence check: concurrent readers and price writers, then
+# every view must carry the last price written within FRESH_MS. Mutates prices: restores after.
+coherence() {
+	local target="$1"
+	local out="$HERE/results/coherence-$target.txt"
+	restore "$target"
+	cold_start "$target"
+	say "verify-coherence against $target"
+	(cd "$ECOMMERCE_STORE_DIR" && node scripts/verify-coherence.mjs --url "http://localhost:$(port_of "$target")") 2>&1 | tee "$out" || true
+	echo "ecommerce-store $(git -C "$ECOMMERCE_STORE_DIR" rev-parse HEAD)" >> "$out"
+	restore "$target"
+}
+
 audit() {
 	say "coherence audit: cached responses vs responses computed from Postgres alone"
 	sleep 2 # writes have stopped; FRESH_MS is 1000
@@ -303,6 +334,7 @@ case "$cmd" in
 	diff) setup; diff_reference ;;
 	bench) setup; TRIALS="${TRIALS:-1}"; bench "${1:?target}" ;;
 	audit) setup; audit ;;
+	coherence) setup; coherence "${1:?target}" ;;
 	stop) setup; stop_target fpr; stop_target harper ;;
 	*) sed -n '2,20p' "$0"; exit 1 ;;
 esac
