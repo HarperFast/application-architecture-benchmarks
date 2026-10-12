@@ -19,6 +19,7 @@ OUT="${1:-/mnt/lssd/out/probe-$(date -u +%Y%m%dT%H%M%SZ)}"
 SECS="${2:-60}"
 TARGET_CPUS="$(cat /sys/fs/cgroup/bench.slice/bench-target.slice/cpuset.cpus.effective)"
 GENERATOR_CPUS="$(cat /sys/fs/cgroup/bench.slice/bench-generator.slice/cpuset.cpus.effective)"
+FAIL=()
 count() { awk -F, '{for(i=1;i<=NF;i++){split($i,r,"-"); n+=(r[2]==""?1:r[2]-r[1]+1)}} END{print n}' <<<"$1"; }
 mkdir -p "$OUT"
 
@@ -40,12 +41,18 @@ burn() { # burn <slice> <cpus>
 	systemd-run --quiet --scope --slice="$1" stress-ng --cpu "$(count "$2")" --cpu-method int64 --timeout "${SECS}s" >/dev/null &
 }
 load_target_only() { burn bench-target.slice "$TARGET_CPUS"; }
-load_all() { burn bench-target.slice "$TARGET_CPUS"; burn bench-generator.slice "$GENERATOR_CPUS"; burn user.slice 0-1; }
+load_all() { burn bench-target.slice "$TARGET_CPUS"; burn bench-generator.slice "$GENERATOR_CPUS"; burn user.slice "$(cat /sys/fs/cgroup/user.slice/cpuset.cpus.effective)"; }
 
 probe() { # probe <name> <load function>: start the load, count cycles on the target CPUs only
 	"$2"
 	sleep 2
-	echo "$1: worker $(grep Cpus_allowed_list "/proc/$(pgrep -n stress-ng)/status")"
+	local pid allowed=""
+	for pid in $(pgrep stress-ng); do
+		grep -q bench-target.slice "/proc/$pid/cgroup" 2>/dev/null || continue
+		allowed="$(awk '/Cpus_allowed_list/{print $2}' "/proc/$pid/status")"; break
+	done
+	echo "$1: target worker allowed CPUs $allowed (slice: $TARGET_CPUS)"
+	[ "$allowed" = "$TARGET_CPUS" ] || FAIL+=("$1: target worker allowed on $allowed, slice says $TARGET_CPUS")
 	perf stat -x, -I 1000 -A -C "$TARGET_CPUS" -e cycles,cpu-clock -o "$OUT/$1.csv" -- sleep "$((SECS - 5))"
 	wait
 }
@@ -59,6 +66,7 @@ echo "== cgroup-mode counting check"
 SECS=12 load_target_only
 perf stat -a -e cycles,task-clock --for-each-cgroup bench.slice/bench-target.slice -- sleep 8 2>&1 | tee "$OUT/cgroup-mode.txt"
 wait
+grep -qE 'not counted|not supported' "$OUT/cgroup-mode.txt" && FAIL+=("cgroup-mode cycles not counted")
 
 # mawk (Debian's default awk) has no asort, so the sort is sort(1).
 summarize() { # summarize <csv>: effective GHz = counted cycles / busy time, per CPU per second
@@ -77,4 +85,9 @@ summarize() { # summarize <csv>: effective GHz = counted cycles / busy time, per
 }
 echo "== effective GHz on target CPUs ($TARGET_CPUS)"
 { summarize "$OUT/target-only.csv"; summarize "$OUT/all-busy.csv"; } | tee "$OUT/summary.txt"
+grep -q 'no countable cycles' "$OUT/summary.txt" && FAIL+=("per-CPU cycles not counted")
 echo "probe output: $OUT"
+# Pass/fail covers only what can fail mechanically. Whether the spread is small enough is
+# judged against the drift threshold, by a person, the first time a machine type is used.
+if [ "${#FAIL[@]}" -gt 0 ]; then printf 'PROBE FAILED: %s\n' "${FAIL[@]}" | tee -a "$OUT/summary.txt"; exit 1; fi
+echo "probe passed: cycles countable per CPU and per cgroup; slices hold" | tee -a "$OUT/summary.txt"

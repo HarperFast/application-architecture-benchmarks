@@ -12,7 +12,7 @@
 # end time in the run record (a gap today, see ecommerce-store-gaps.md).
 #
 # Output:
-#   perf.csv          cycles, instructions, task-clock per second for each bench slice
+#   perf.csv          cycles, instructions, task-clock per 250 ms for each bench slice
 #                     (perf -I time is seconds since perf.start-epoch-ms)
 #   cgroups.csv       epoch_ms,cgroup,usage_usec,user_usec,system_usec,nr_throttled,throttled_usec,memory_current,oom_kill
 #   host.csv          epoch_ms,user,nice,system,idle,iowait,irq,softirq,steal  (/proc/stat jiffies, all CPUs)
@@ -32,7 +32,10 @@ mkdir -p "$OUT"
 ms() { date +%s%3N; }
 
 ms > "$OUT/perf.start-epoch-ms"
-perf stat -a -x, -I 1000 -e cycles,instructions,task-clock --for-each-cgroup "$SLICES" -o "$OUT/perf.csv" &
+# 250 ms intervals: a step boundary falls inside an interval, and at 15 s steps a 1 s interval
+# would misattribute up to ~7% of a step's cycles. cpu.stat below is cumulative, so it can be
+# interpolated at a boundary and needs no finer sampling.
+perf stat -a -x, -I 250 -e cycles,instructions,task-clock --for-each-cgroup "$SLICES" -o "$OUT/perf.csv" &
 PERF=$!
 trap 'kill "$PERF" 2>/dev/null; wait "$PERF" 2>/dev/null; exit 0' INT TERM EXIT
 

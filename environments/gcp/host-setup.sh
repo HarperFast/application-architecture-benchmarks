@@ -37,12 +37,21 @@ echo "cpus=$NCPU  online=$(cat /sys/devices/system/cpu/online)  kernel=$(uname -
 # or not, this decides whether the clock can be pinned at all (README "The clock").
 echo "cpufreq: $(ls /sys/devices/system/cpu/cpu0/cpufreq 2>/dev/null | tr '\n' ' ')"
 
+say "packages"
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
+apt-get install -y ca-certificates curl gnupg git git-lfs jq tmux zstd xz-utils \
+	linux-perf sysstat numactl stress-ng mdadm
+perf --version
+
 say "local SSD -> ${DATA}"
 if ! mountpoint -q "$DATA"; then
-	mapfile -t SSDS < <(ls /dev/disk/by-id/google-local-nvme-ssd-* 2>/dev/null | grep -v -- '-part' || true)
-	[ "${#SSDS[@]}" -gt 0 ] || die "no local SSD found; use an -lssd machine type (README 'Disk')"
+	SSDS=()
+	for d in /dev/disk/by-id/google-local-nvme-ssd-*; do
+		[ -e "$d" ] && [[ "$d" != *-part* ]] && SSDS+=("$d")
+	done
+	[ "${#SSDS[@]}" -gt 0 ] || die "no local SSD found; use an -lssd machine type (README 'Instance')"
 	if [ "${#SSDS[@]}" -gt 1 ]; then
-		apt-get install -y mdadm
 		mdadm --create /dev/md0 --level=0 --raid-devices="${#SSDS[@]}" "${SSDS[@]}" --run
 		DEV=/dev/md0
 	else
@@ -53,13 +62,6 @@ if ! mountpoint -q "$DATA"; then
 	mount -o defaults,noatime "$DEV" "$DATA"
 fi
 findmnt "$DATA"
-
-say "packages"
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -y
-apt-get install -y ca-certificates curl gnupg git git-lfs jq tmux zstd xz-utils \
-	linux-perf sysstat numactl stress-ng
-perf --version
 
 say "docker engine (download.docker.com, signed)"
 install -m 0755 -d /etc/apt/keyrings /etc/docker
