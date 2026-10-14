@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # vm.sh — create, reach, and delete the tier-2 benchmark VM on GCP.
 #
-# UNEXECUTED. Written 2026-10-12 before any tier-2 host existed. Read `vm.sh up --dry-run`
+# PARTLY EXECUTED: preflight ran 2026-10-14; up, ssh, push, pull, and down have not. Read `vm.sh up --dry-run`
 # output before running it for real, and fix this file when reality disagrees with it.
 #
 #   vm.sh preflight                 auth, billing, quota, and org-policy checks (read only)
@@ -28,6 +28,7 @@ export CLOUDSDK_ACTIVE_CONFIG_NAME="${CLOUDSDK_ACTIVE_CONFIG_NAME:-arch-bench}"
 ZONE="${ZONE:-us-central1-a}"
 REGION="${ZONE%-*}"
 MACHINE="${MACHINE:-c4-standard-16-lssd}"
+FAMILY="$(echo "${MACHINE%%-*}" | tr 'a-z' 'A-Z')"   # c4-standard-16-lssd -> C4, as quotas name it
 OWNER="${OWNER:-$(whoami | tr 'A-Z' 'a-z' | tr -cd 'a-z0-9-')}"
 NAME="${NAME:-arch-bench-${OWNER}}"
 COMPARISON="${COMPARISON:-unspecified}"           # label value: lowercase, digits, - and _
@@ -58,11 +59,11 @@ cmd_preflight() {
 	echo "config:   $CLOUDSDK_ACTIVE_CONFIG_NAME  project: $PROJECT  zone: $ZONE  machine: $MACHINE"
 	echo "account:  $("$GCLOUD" config get-value account 2>/dev/null)"
 	echo "billing:  $("${G[@]}" billing projects describe "$PROJECT" --format='value(billingEnabled)')"
-	echo "apis:"; "${G[@]}" services list --enabled --format='value(config.name)' | grep -E '^(compute|iap)\.googleapis\.com$' || true
-	echo "quota (${REGION}):"
+	echo "apis:"; "${G[@]}" services list --enabled --format='value(config.name)' | grep -E '^(compute|iap|cloudquotas)\.googleapis\.com$' || true
+	echo "quota (${REGION}, ${FAMILY} family): vCPUs $(family_quota CPUS-PER-VM-FAMILY-per-project-region), local SSD GB $(family_quota LOCAL-SSD-TOTAL-GB-PER-VM-FAMILY-per-project-region)"
+	echo "quota (${REGION}, metric,limit,usage):"
 	"${G[@]}" compute regions describe "$REGION" --flatten=quotas \
-		--filter='quotas.metric~^(C4|C4A|CPUS|LOCAL_SSD|IN_USE_ADDRESSES)' \
-		--format='table(quotas.metric,quotas.limit,quotas.usage)'
+		--format='csv[no-heading](quotas.metric,quotas.limit,quotas.usage)' | grep -E '^(CPUS|IN_USE_ADDRESSES),' || true
 	echo "machine type available in ${ZONE}:"
 	"${G[@]}" compute machine-types describe "$MACHINE" --zone="$ZONE" --format='value(name,guestCpus,memoryMb)' || echo "  NOT available in $ZONE"
 	echo "external IPv4 (constraints/compute.vmExternalIpAccess): $(external_ip_policy)"
@@ -71,6 +72,17 @@ cmd_preflight() {
 	for c in constraints/compute.requireOsLogin constraints/iam.disableServiceAccountKeyCreation; do
 		printf '  %s: ' "$c"; "${G[@]}" resource-manager org-policies describe "$c" --effective --format='value(listPolicy,booleanPolicy)' 2>/dev/null || echo '?'
 	done
+}
+
+# Per-family quotas (C4 vCPUs, C4 local SSD) are not in `regions describe`; only the Cloud
+# Quotas API has them. A region-specific entry wins over the family default. jq ships with macOS.
+family_quota() { # family_quota <quotaId>
+	curl -sf -H "Authorization: Bearer $("$GCLOUD" auth print-access-token)" -H "x-goog-user-project: $PROJECT" \
+		"https://cloudquotas.googleapis.com/v1/projects/$PROJECT/locations/global/services/compute.googleapis.com/quotaInfos/$1" \
+		| jq -r --arg r "$REGION" --arg f "$FAMILY" '[.dimensionsInfos[]
+			| select((.dimensions.region // $r) == $r and (.dimensions.vm_family // $f) == $f)]
+			| sort_by(.dimensions.region == null) | first | .details.value // "none"' \
+		|| echo "? (enable cloudquotas.googleapis.com)"
 }
 
 # allowed | blocked | unknown. The constraint is a list of instances allowed an external IP:

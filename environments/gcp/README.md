@@ -2,7 +2,7 @@
 
 How to run a [stack comparison](../../README.md#stack-comparisons) on a dedicated Linux VM on Google Cloud: the same containers, budgets, and harness as [tier 1](../../README.md#environment-tiers), on a host where cgroup limits, per-target CPU accounting, and the clock can be trusted enough to publish.
 
-> **Status, 2026-10-12: prepared, not executed.** No tier-2 host has been created. The scripts in this directory have never run, the instance recommendation rests on Google's documentation rather than on measurement, and prices are third-party snapshots. The first session [qualifies the instance](#2-qualify-the-clock) before anything else is trusted. [Decisions](#decisions) records the choices made before that session, and [known gaps](#known-gaps) lists what the harness still has to gain.
+> **Status, 2026-10-14: project created, no host yet.** The project, budget, and `vm.sh preflight` have run; no tier-2 VM has been created, so `host-setup.sh`, `probe-clock.sh`, `sample.sh`, and `conditions.sh` have never run, and the instance recommendation rests on Google's documentation rather than on measurement. The first session [qualifies the instance](#2-qualify-the-clock) before anything else is trusted. [Decisions](#decisions) records the choices made before that session, and [known gaps](#known-gaps) lists what the harness still has to gain.
 
 | File | Runs on | Purpose |
 |-|-|-|
@@ -69,24 +69,24 @@ The rules allow the generator on the same machine provided it sits outside the t
 
 ## Project and spend
 
-One dedicated project holds every tier-2 session, so spend is attributable and nothing else lives beside the VMs. Any staff member can create a project and link it to the company billing account, which carries credits. Commands for the person setting it up, once:
+One dedicated project holds every tier-2 session, so spend is attributable and nothing else lives beside the VMs. Any staff member can create a project and link it to the company billing account, which carries credits. Commands for the person setting it up, once (run 2026-10-14; `gcloud auth login` first):
 
 ```bash
 PROJECT=harper-arch-bench
-gcloud projects create "$PROJECT" --folder="$FOLDER_ID"   # parent folder: see Decisions
+gcloud projects create "$PROJECT" --organization="$ORG_ID"   # directly under the organization: see Decisions
 gcloud billing projects link "$PROJECT" --billing-account="$BILLING_ACCOUNT"
-gcloud services enable compute.googleapis.com iap.googleapis.com billingbudgets.googleapis.com --project="$PROJECT"
+gcloud services enable compute.googleapis.com iap.googleapis.com billingbudgets.googleapis.com cloudquotas.googleapis.com --project="$PROJECT"
 gcloud config configurations create arch-bench --no-activate
 gcloud config set account "$(gcloud config get-value account)" --configuration=arch-bench   # vm.sh runs in this configuration
 gcloud config set project "$PROJECT" --configuration=arch-bench
 gcloud config set compute/zone us-central1-a --configuration=arch-bench
-gcloud billing budgets create --billing-account="$BILLING_ACCOUNT" --display-name="arch-bench" \
-  --filter-projects="projects/$PROJECT" --budget-amount=100USD \
+gcloud billing budgets create --billing-project="$PROJECT" --billing-account="$BILLING_ACCOUNT" --display-name="arch-bench" \
+  --filter-projects="projects/$PROJECT" --budget-amount=100USD --credit-types-treatment=exclude-all-credits \
   --threshold-rule=percent=0.5 --threshold-rule=percent=0.9 --threshold-rule=percent=1.0 \
   --threshold-rule=percent=1.0,basis=forecasted-spend
 ```
 
-A project owner can create a budget for that project without billing-account permissions; if `gcloud billing budgets create` refuses, the console's Billing page can. Budgets alert, they do not cap. Billing-account-wide cost-anomaly and daily-spend alerts are managed centrally on top of this.
+`--billing-project` is required: the Budgets API needs a quota project, and without one the command fails with a misleading permission error. Credits are excluded so the alerts track usage, not the remainder after credits, which on a credit-funded account can stay at zero. Alerts go to the billing account's administrators and users by default. A project owner can create a budget for that project without billing-account permissions; if `gcloud billing budgets create` refuses, the console's Billing page can. Budgets alert, they do not cap. Billing-account-wide cost-anomaly and daily-spend alerts are managed centrally on top of this.
 
 Spend hygiene:
 
@@ -95,9 +95,9 @@ Spend hygiene:
 - One VM per session, deleted at the end of the session. `vm.sh down` deletes it, deletes Cloud NAT if the session used it, and then fails loudly if any instance, disk, reserved address, or router remains. The network and IAP firewall rule cost nothing and stay.
 - The self-delete deadline caps a forgotten VM at eight hours. Pull results before it fires: local SSD and the boot disk are deleted with the VM.
 - No Spot VMs for measured sessions: a preemption mid-session breaks the one-session rule.
-- `vm.sh preflight` shows C4 CPU and local SSD quota; a new project's default C4 quota may be below 16 vCPUs.
+- `vm.sh preflight` shows the machine family's CPU and local SSD quota, which only the Cloud Quotas API reports. The new project started with 300 C4 vCPUs and 25,000 GB of C4 local SSD in us-central1.
 
-Estimated cost per session, from third-party price trackers in October 2026 (`c4-standard-16-lssd` listed at $0.81–0.96/h depending on whether the Titanium SSD is included; plan on $1/h, and check the pricing calculator before approving a budget):
+Estimated cost per session. Google's Cloud Billing Catalog, read 2026-10-14, prices `c4-standard-16-lssd` in us-central1 at $0.97/h on demand: 16 C4 cores at $0.03465/h (billed with SMT off too), 60 GiB at $0.003938/GiB-h, and 2 × 375 GiB of Titanium SSD at $0.16/GiB-month. Plan on $1/h:
 
 | Session | Duration | Cost |
 |-|-|-|
@@ -268,7 +268,7 @@ Every raw sample is kept with the comparison. Nothing on the VM survives `down`.
 
 Made 2026-10-12, before the first session.
 
-1. **Project:** `harper-arch-bench`. A parent folder was not named in the suggestion this accepted; whoever creates the project records its folder here.
+1. **Project:** `harper-arch-bench`, created 2026-10-14 directly under the Harper organization, with no folder: staff cannot list folders, and the organization's other projects sit at its root. An organization admin can move it into a folder later without affecting it.
 2. **Budget:** $100 a month, with alerts at 50%, 90%, and 100% of actual spend and at 100% of forecast.
 3. **Clock rule:** "all-core turbo, measured" satisfies it where the clock cannot be pinned. The top-level README's tier-2 paragraph and first [measurement rule](../../README.md#measurement-rules) say so: pin where the host allows it; otherwise bound it, count cycles per target, record the effective frequency, and publish "all-core turbo, measured at N GHz", never "pinned".
 4. **Bare metal and sole tenancy:** one verification session at most, to find out whether bare metal gives the OS frequency control and how far its results differ from the VM's. Never the default.
@@ -279,4 +279,4 @@ Made 2026-10-12, before the first session.
 
 ## Sources
 
-Google Cloud documentation, read 2026-10-12: [CPU platforms](https://docs.cloud.google.com/compute/docs/cpu-platforms) (frequencies, ALL_CORE_MAX, no P-state control), [general-purpose machine families](https://docs.cloud.google.com/compute/docs/general-purpose-machines) (C4 shapes, Granite Rapids on `-lssd`, Hyperdisk only, live migration), [PMU overview](https://docs.cloud.google.com/compute/docs/pmu-overview) and [enabling the PMU](https://docs.cloud.google.com/compute/docs/enable-pmu-in-vms), [threads per core](https://docs.cloud.google.com/compute/docs/instances/set-threads-per-core), [limiting VM runtime](https://docs.cloud.google.com/compute/docs/instances/limit-vm-runtime), [sole-tenant nodes](https://docs.cloud.google.com/compute/docs/nodes/sole-tenant-nodes), [`gcloud compute instances create`](https://docs.cloud.google.com/sdk/gcloud/reference/compute/instances/create), and [`gcloud billing budgets create`](https://docs.cloud.google.com/sdk/gcloud/reference/billing/budgets/create). Prices from [sparecores](https://sparecores.com/server/gcp/c4-standard-16-lssd), [Holori](https://calculator.holori.com/gcp/vm/c4-standard-16-lssd/us-central1), and [gcloud-compute.com](https://gcloud-compute.com/c4-standard-288-lssd-metal.html), October 2026. Provisioning patterns from [`HarperFast/sharded-blob-test`](https://github.com/HarperFast/sharded-blob-test/tree/main/provisioning/gcp).
+Google Cloud documentation, read 2026-10-12: [CPU platforms](https://docs.cloud.google.com/compute/docs/cpu-platforms) (frequencies, ALL_CORE_MAX, no P-state control), [general-purpose machine families](https://docs.cloud.google.com/compute/docs/general-purpose-machines) (C4 shapes, Granite Rapids on `-lssd`, Hyperdisk only, live migration), [PMU overview](https://docs.cloud.google.com/compute/docs/pmu-overview) and [enabling the PMU](https://docs.cloud.google.com/compute/docs/enable-pmu-in-vms), [threads per core](https://docs.cloud.google.com/compute/docs/instances/set-threads-per-core), [limiting VM runtime](https://docs.cloud.google.com/compute/docs/instances/limit-vm-runtime), [sole-tenant nodes](https://docs.cloud.google.com/compute/docs/nodes/sole-tenant-nodes), [`gcloud compute instances create`](https://docs.cloud.google.com/sdk/gcloud/reference/compute/instances/create), and [`gcloud billing budgets create`](https://docs.cloud.google.com/sdk/gcloud/reference/billing/budgets/create). C4 and C4A prices from the Cloud Billing Catalog API (Compute Engine, service `6F81-5844-456A`), read 2026-10-14; bare-metal and sole-tenant prices from [sparecores](https://sparecores.com/server/gcp/c4-standard-16-lssd), [Holori](https://calculator.holori.com/gcp/vm/c4-standard-16-lssd/us-central1), and [gcloud-compute.com](https://gcloud-compute.com/c4-standard-288-lssd-metal.html), October 2026. Provisioning patterns from [`HarperFast/sharded-blob-test`](https://github.com/HarperFast/sharded-blob-test/tree/main/provisioning/gcp).
