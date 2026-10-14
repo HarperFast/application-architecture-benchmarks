@@ -15,6 +15,7 @@ while kill -0 "$parent" 2>/dev/null; do
 		n == 2 && $1 ~ /^[0-9.]+$/ {
 			cmd = $2; for (i = 3; i <= NF; i++) cmd = cmd " " $i
 			if (cmd ~ /^(krunkit|gvproxy|top)$/) next
+			if ($1 > cores * 100) next # top reports an absurd first sample for a just-started process
 			other += $1 / 100
 			if ($1 >= 20) list = list (list ? "," : "") cmd "=" $1 "%"
 		}

@@ -2,7 +2,7 @@
 
 An implementation of the [ecommerce-store](https://github.com/HarperFast/ecommerce-store) application specification (`SPEC.md` `0.2.0-draft`) on a separated stack: a Fastify HTTP service, PostgreSQL as the source of truth, and Redis as the cache. It is the first competing implementation for the Harper reference, built for the step-0 rough comparison in [`comparisons/ecommerce-store-rough`](../../comparisons/ecommerce-store-rough). Nothing produced from it is a published result; see the [methodology](../../README.md).
 
-The specification, dataset, conformance suite and load harness live in the ecommerce-store repository and are used from a checkout of it, never copied here. The contract this implementation is built and checked against is ecommerce-store's `harper-5.3` branch (`SPEC.md`, `packages/spec`, `e2e/`, `scripts/verify-coherence.mjs`, and the harness), which fixes harness measurement bugs and several reference behaviours relative to `main`; the commit used is recorded with every run.
+The specification, dataset, conformance suite and load harness live in the ecommerce-store repository and are used from a checkout of it, never copied here. The contract this implementation is built and checked against is ecommerce-store's `harper-5.3` branch (`SPEC.md`, `packages/spec`, `e2e/`, `scripts/verify-coherence.mjs`, and the harness), which fixes harness measurement bugs and several reference behaviours relative to `main`; the commit used (currently `5c32151`, dataset generator 0.5.0) is recorded with every run.
 
 ## Versions
 

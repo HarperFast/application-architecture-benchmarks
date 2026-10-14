@@ -39,8 +39,10 @@ const all = files.map((file) => {
 	let host = null;
 	try {
 		const lines = readFileSync(join(rawDir, `host-${s.target}-${s.conditions.stamp}.txt`), 'utf8').trim().split('\n').map((l) => l.split(' '));
-		const other = lines.map((l) => Number(l[2]));
-		host = { samples: lines.length, nonVmBusyCoresMean: +(other.reduce((a, b) => a + b, 0) / other.length).toFixed(2), nonVmBusyCoresMax: Math.max(...other) };
+		// macOS `top` occasionally reports an absurd first sample for a just-started process; a
+		// sample above the machine's core count is discarded, and the median is reported.
+		const other = lines.map((l) => Number(l[2])).filter((v) => Number.isFinite(v) && v <= 12).sort((a, b) => a - b);
+		host = { samples: other.length, discarded: lines.length - other.length, nonVmBusyCoresMedian: other[Math.floor(other.length / 2)] ?? null, nonVmBusyCoresMax: other.at(-1) ?? null };
 	} catch {}
 	return { file: basename(file), config, summary: s, host, contended: s.steps.some((step) => contended(step)) };
 });
@@ -108,7 +110,7 @@ for (const config of configs) {
 	};
 
 	out.push(`### ${config}`, '');
-	out.push(`${group.length} trial(s), ${group.filter((t) => t.contended).length} with at least one contended step (those steps excluded; n = clean observations per row). Cold start to first 200: ${fmt(group.map((t) => t.summary.conditions.lifecycle?.coldStartFirst200Ms), 0)} ms. Contention at start: ${group.map((t) => t.summary.conditions.contentionAtStart?.busyOtherContainers || 'none').join(', ')}. Host (macOS) cores busy outside the VM, mean per trial: ${group.map((t) => t.host?.nonVmBusyCoresMean ?? '-').join(', ')}.`, '');
+	out.push(`${group.length} trial(s), ${group.filter((t) => t.contended).length} with at least one contended step (those steps excluded; n = clean observations per row). Cold start to first 200: ${fmt(group.map((t) => t.summary.conditions.lifecycle?.coldStartFirst200Ms), 0)} ms. Contention at start: ${group.map((t) => t.summary.conditions.contentionAtStart?.busyOtherContainers || 'none').join(', ')}. Host (macOS) cores busy outside the VM, median per trial: ${group.map((t) => t.host?.nonVmBusyCoresMedian ?? '-').join(', ')}.`, '');
 	const header = ['offered rps', 'n', 'achieved rps', 'shed', 'p50 ms', 'p99 ms', 'quote p99', 'product p99', 'product hit %', ...components.map((c) => `${c} cores`), 'target cores', 'target CPU ms/req', 'target memory MiB', 'disk reads MiB', 'uncharged VM cores', 'gen CPU'];
 	out.push(`| ${header.join(' | ')} |`, `|${header.map(() => '-').join('|')}|`);
 	const rates = first.steps.map((s) => s.offeredRate);
