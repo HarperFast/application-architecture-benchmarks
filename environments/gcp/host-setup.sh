@@ -130,8 +130,8 @@ for s in bench.slice/bench-target.slice bench.slice/bench-generator.slice; do
 done
 
 say "kernel housekeeping off the measured CPUs"
-# Unbound workqueues (writeback and friends) run where this mask allows.
-echo "$HOUSEKEEPING_CPUS" > /sys/devices/virtual/workqueue/cpumask || echo "workqueue cpumask not settable"
+# Unbound workqueues (writeback and friends) run where this mask allows. It takes a hex mask, not a CPU list (0-1 is 3).
+mask=0; for r in ${HOUSEKEEPING_CPUS//,/ }; do for ((c = ${r%-*}; c <= ${r#*-}; c++)); do mask=$((mask | 1 << c)); done; done; printf '%x\n' "$mask" > /sys/devices/virtual/workqueue/cpumask || echo "workqueue cpumask not settable"
 systemctl disable --now irqbalance 2>/dev/null || true
 for irq in /proc/irq/[0-9]*; do
 	# Managed IRQs (NVMe queues) refuse this; they are spread per CPU by design. Recorded, not hidden.
