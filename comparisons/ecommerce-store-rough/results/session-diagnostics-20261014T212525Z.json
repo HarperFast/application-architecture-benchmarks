@@ -1,0 +1,794 @@
+{
+  "session": "session-diagnostics-20261014T212525Z.log",
+  "trialsWithContendedSteps": [],
+  "configs": {
+    "harper reference (no page-cache drop)": {
+      "trials": [
+        {
+          "file": "summary-harper-2026-10-14T21-25-29-347Z.json",
+          "stamp": "20261014T212525Z",
+          "coldStartFirst200Ms": 1587,
+          "host": {
+            "samples": 18,
+            "discarded": 0,
+            "nonVmBusyCoresMedian": 2.56,
+            "nonVmBusyCoresMax": 3.84
+          },
+          "contention": null,
+          "steps": [
+            {
+              "contended": false,
+              "offered": 400,
+              "achieved": 400,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 2.69,
+              "p90": 4.9,
+              "p99": 93.85,
+              "quoteP99": 140.77,
+              "productP99": 71.44,
+              "dispatchLagP99": 9.76,
+              "productCacheHitRate": 0.3729,
+              "invalidations": 3072,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.092,
+              "generatorSaturated": true,
+              "targetCpuLoad": 0.642,
+              "targetCpuMsPerOk": 1.606,
+              "targetMemoryBytes": 414629888,
+              "targetPageCacheBytes": 5455872,
+              "targetDiskReadBytes": 0,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 0.639
+              },
+              "throttledSeconds": {
+                "harper": 0.084
+              },
+              "generatorContainerCores": 0.099,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.017,
+              "machineBusyCores": 0.872,
+              "unchargedVmCores": 0.117
+            },
+            {
+              "contended": false,
+              "offered": 800,
+              "achieved": 799.8,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 2.45,
+              "p90": 4.54,
+              "p99": 49.17,
+              "quoteP99": 72.56,
+              "productP99": 24.86,
+              "dispatchLagP99": 3.54,
+              "productCacheHitRate": 0.4935,
+              "invalidations": 2940,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.089,
+              "generatorSaturated": false,
+              "targetCpuLoad": 0.753,
+              "targetCpuMsPerOk": 0.942,
+              "targetMemoryBytes": 466812928,
+              "targetPageCacheBytes": 7651328,
+              "targetDiskReadBytes": 0,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 0.744
+              },
+              "throttledSeconds": {
+                "harper": 0.492
+              },
+              "generatorContainerCores": 0.093,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.015,
+              "machineBusyCores": 0.957,
+              "unchargedVmCores": 0.105
+            },
+            {
+              "contended": false,
+              "offered": 1600,
+              "achieved": 1599.7,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 2.54,
+              "p90": 5.43,
+              "p99": 51.72,
+              "quoteP99": 63.45,
+              "productP99": 32.81,
+              "dispatchLagP99": 3.47,
+              "productCacheHitRate": 0.6407,
+              "invalidations": 3036,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.111,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.116,
+              "targetCpuMsPerOk": 0.698,
+              "targetMemoryBytes": 495693824,
+              "targetPageCacheBytes": 10678272,
+              "targetDiskReadBytes": 0,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 1.104
+              },
+              "throttledSeconds": {
+                "harper": 0.08
+              },
+              "generatorContainerCores": 0.117,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.02,
+              "machineBusyCores": 1.354,
+              "unchargedVmCores": 0.113
+            },
+            {
+              "contended": false,
+              "offered": 2400,
+              "achieved": 2399.1,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 2.58,
+              "p90": 6.25,
+              "p99": 154.14,
+              "quoteP99": 171.19,
+              "productP99": 146.12,
+              "dispatchLagP99": 3.12,
+              "productCacheHitRate": 0.7372,
+              "invalidations": 3096,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.133,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.354,
+              "targetCpuMsPerOk": 0.565,
+              "targetMemoryBytes": 522559488,
+              "targetPageCacheBytes": 14016512,
+              "targetDiskReadBytes": 0,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 1.344
+              },
+              "throttledSeconds": {
+                "harper": 0.722
+              },
+              "generatorContainerCores": 0.137,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.01,
+              "machineBusyCores": 1.613,
+              "unchargedVmCores": 0.122
+            }
+          ]
+        }
+      ],
+      "budget": {
+        "mode": "single container",
+        "targetCpus": 2,
+        "targetMemoryMiB": 2048,
+        "harperThreads": 2
+      },
+      "images": [
+        "docker.io/library/aab-ecommerce-rough-harper:latest@2a2c4e7031076be9b5287b9b5ae75661199c4be09bdee3108560175850d1482f"
+      ],
+      "limits": {
+        "harper": {
+          "cpuMax": "200000 100000",
+          "memoryMax": "2147483648"
+        }
+      }
+    },
+    "harper reference (writes off)": {
+      "trials": [
+        {
+          "file": "summary-harper-2026-10-14T21-26-55-250Z.json",
+          "stamp": "20261014T212650Z",
+          "coldStartFirst200Ms": 2141,
+          "host": {
+            "samples": 18,
+            "discarded": 0,
+            "nonVmBusyCoresMedian": 2.35,
+            "nonVmBusyCoresMax": 2.78
+          },
+          "contention": null,
+          "steps": [
+            {
+              "contended": false,
+              "offered": 400,
+              "achieved": 400,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 2.44,
+              "p90": 4,
+              "p99": 6.54,
+              "quoteP99": 7.94,
+              "productP99": 4.16,
+              "dispatchLagP99": 3.16,
+              "productCacheHitRate": 0.5092,
+              "invalidations": 0,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.065,
+              "generatorSaturated": false,
+              "targetCpuLoad": 0.469,
+              "targetCpuMsPerOk": 1.173,
+              "targetMemoryBytes": 587259904,
+              "targetPageCacheBytes": 157364224,
+              "targetDiskReadBytes": 0,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 0.461
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.072,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.013,
+              "machineBusyCores": 0.677,
+              "unchargedVmCores": 0.131
+            },
+            {
+              "contended": false,
+              "offered": 800,
+              "achieved": 799.9,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 2.23,
+              "p90": 3.8,
+              "p99": 6.15,
+              "quoteP99": 7.76,
+              "productP99": 3.71,
+              "dispatchLagP99": 3.02,
+              "productCacheHitRate": 0.6202,
+              "invalidations": 0,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.075,
+              "generatorSaturated": false,
+              "targetCpuLoad": 0.648,
+              "targetCpuMsPerOk": 0.811,
+              "targetMemoryBytes": 619036672,
+              "targetPageCacheBytes": 158859264,
+              "targetDiskReadBytes": 0,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 0.644
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.08,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.012,
+              "machineBusyCores": 0.85,
+              "unchargedVmCores": 0.114
+            },
+            {
+              "contended": false,
+              "offered": 1600,
+              "achieved": 1599.7,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 2.26,
+              "p90": 4.2,
+              "p99": 31.48,
+              "quoteP99": 48.8,
+              "productP99": 12.44,
+              "dispatchLagP99": 3.06,
+              "productCacheHitRate": 0.7353,
+              "invalidations": 0,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.102,
+              "generatorSaturated": false,
+              "targetCpuLoad": 0.935,
+              "targetCpuMsPerOk": 0.585,
+              "targetMemoryBytes": 637222912,
+              "targetPageCacheBytes": 160944128,
+              "targetDiskReadBytes": 0,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 0.922
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.106,
+              "otherContainerCores": 0.001,
+              "vmServicesCores": 0.011,
+              "machineBusyCores": 1.132,
+              "unchargedVmCores": 0.092
+            },
+            {
+              "contended": false,
+              "offered": 2400,
+              "achieved": 2399.6,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 2.42,
+              "p90": 5.45,
+              "p99": 61.4,
+              "quoteP99": 77.39,
+              "productP99": 54.15,
+              "dispatchLagP99": 2.95,
+              "productCacheHitRate": 0.8162,
+              "invalidations": 0,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.139,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.244,
+              "targetCpuMsPerOk": 0.519,
+              "targetMemoryBytes": 664563712,
+              "targetPageCacheBytes": 163135488,
+              "targetDiskReadBytes": 0,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 1.233
+              },
+              "throttledSeconds": {
+                "harper": 0.376
+              },
+              "generatorContainerCores": 0.144,
+              "otherContainerCores": -0.001,
+              "vmServicesCores": 0.01,
+              "machineBusyCores": 1.503,
+              "unchargedVmCores": 0.117
+            }
+          ]
+        }
+      ],
+      "budget": {
+        "mode": "single container",
+        "targetCpus": 2,
+        "targetMemoryMiB": 2048,
+        "harperThreads": 2
+      },
+      "images": [
+        "docker.io/library/aab-ecommerce-rough-harper:latest@2a2c4e7031076be9b5287b9b5ae75661199c4be09bdee3108560175850d1482f"
+      ],
+      "limits": {
+        "harper": {
+          "cpuMax": "200000 100000",
+          "memoryMax": "2147483648"
+        }
+      }
+    },
+    "fastify-postgres-redis (shared budget, no page-cache drop)": {
+      "trials": [
+        {
+          "file": "summary-fpr-2026-10-14T21-28-22-462Z.json",
+          "stamp": "20261014T212818Z",
+          "coldStartFirst200Ms": 954,
+          "host": {
+            "samples": 18,
+            "discarded": 0,
+            "nonVmBusyCoresMedian": 3.79,
+            "nonVmBusyCoresMax": 4.62
+          },
+          "contention": null,
+          "steps": [
+            {
+              "contended": false,
+              "offered": 400,
+              "achieved": 400,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 2.39,
+              "p90": 3.65,
+              "p99": 8.67,
+              "quoteP99": 13.25,
+              "productP99": 8.36,
+              "dispatchLagP99": 3.1,
+              "productCacheHitRate": 0.373,
+              "invalidations": 3228,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.076,
+              "generatorSaturated": false,
+              "targetCpuLoad": 0.375,
+              "targetCpuMsPerOk": 0.937,
+              "targetMemoryBytes": 407674880,
+              "targetPageCacheBytes": 122904576,
+              "targetDiskReadBytes": 0,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "postgres": 0.088,
+                "redis": 0.036,
+                "app": 0.25
+              },
+              "throttledSeconds": {
+                "postgres": 0,
+                "redis": 0,
+                "app": 0
+              },
+              "generatorContainerCores": 0.084,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.021,
+              "machineBusyCores": 0.812,
+              "unchargedVmCores": 0.334
+            },
+            {
+              "contended": false,
+              "offered": 800,
+              "achieved": 799.9,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 2.24,
+              "p90": 3.49,
+              "p99": 4.81,
+              "quoteP99": 4.98,
+              "productP99": 4.36,
+              "dispatchLagP99": 2.94,
+              "productCacheHitRate": 0.4932,
+              "invalidations": 3085,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.105,
+              "generatorSaturated": false,
+              "targetCpuLoad": 0.482,
+              "targetCpuMsPerOk": 0.602,
+              "targetMemoryBytes": 412606464,
+              "targetPageCacheBytes": 123191296,
+              "targetDiskReadBytes": 0,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "postgres": 0.107,
+                "redis": 0.045,
+                "app": 0.325
+              },
+              "throttledSeconds": {
+                "postgres": 0,
+                "redis": 0,
+                "app": 0
+              },
+              "generatorContainerCores": 0.106,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.012,
+              "machineBusyCores": 1.011,
+              "unchargedVmCores": 0.416
+            },
+            {
+              "contended": false,
+              "offered": 1600,
+              "achieved": 1599.8,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 2.19,
+              "p90": 3.42,
+              "p99": 4.39,
+              "quoteP99": 4.61,
+              "productP99": 4.12,
+              "dispatchLagP99": 2.87,
+              "productCacheHitRate": 0.6406,
+              "invalidations": 3189,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.127,
+              "generatorSaturated": false,
+              "targetCpuLoad": 0.656,
+              "targetCpuMsPerOk": 0.41,
+              "targetMemoryBytes": 420999168,
+              "targetPageCacheBytes": 124411904,
+              "targetDiskReadBytes": 0,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "postgres": 0.164,
+                "redis": 0.055,
+                "app": 0.433
+              },
+              "throttledSeconds": {
+                "postgres": 0,
+                "redis": 0,
+                "app": 0
+              },
+              "generatorContainerCores": 0.134,
+              "otherContainerCores": 0.001,
+              "vmServicesCores": 0.011,
+              "machineBusyCores": 1.332,
+              "unchargedVmCores": 0.534
+            },
+            {
+              "contended": false,
+              "offered": 2400,
+              "achieved": 2399.6,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 2.2,
+              "p90": 3.41,
+              "p99": 4.32,
+              "quoteP99": 4.5,
+              "productP99": 4.08,
+              "dispatchLagP99": 2.88,
+              "productCacheHitRate": 0.7371,
+              "invalidations": 3254,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.153,
+              "generatorSaturated": false,
+              "targetCpuLoad": 0.782,
+              "targetCpuMsPerOk": 0.326,
+              "targetMemoryBytes": 425172992,
+              "targetPageCacheBytes": 124575744,
+              "targetDiskReadBytes": 0,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "postgres": 0.209,
+                "redis": 0.061,
+                "app": 0.509
+              },
+              "throttledSeconds": {
+                "postgres": 0,
+                "redis": 0,
+                "app": 0
+              },
+              "generatorContainerCores": 0.157,
+              "otherContainerCores": 0.001,
+              "vmServicesCores": 0.012,
+              "machineBusyCores": 1.542,
+              "unchargedVmCores": 0.593
+            }
+          ]
+        }
+      ],
+      "budget": {
+        "mode": "shared",
+        "targetCpus": 2,
+        "targetMemoryMiB": 2048,
+        "cgroupParent": "machine-libpod_pod_0e3bad4f45389720928aa367428e2a8235e5c506e18b32f8b003d8928fb79649.slice",
+        "cpus": {
+          "app": 2,
+          "postgres": 2,
+          "redis": 2
+        },
+        "memoryMiB": {
+          "app": 640,
+          "postgres": 1024,
+          "redis": 384
+        }
+      },
+      "images": [
+        "docker.io/library/postgres:18.6-trixie@0336095afa072c685c93021dcfa4a5fee9cbce25ecd65121b58226c787afc0d0",
+        "docker.io/library/redis:8.10.2-trixie@9bd2e561aa8ab3aaf9d40021f90d845342b979250f12edac423d80137125c022",
+        "localhost/aab-fastify-postgres-redis-app:latest@066ca80d18515659006aa6e716d94f78011a7471e5051cbebfed20a239597c4a"
+      ],
+      "limits": {
+        "postgres": {
+          "cpuMax": "200000 100000",
+          "memoryMax": "1073741824"
+        },
+        "redis": {
+          "cpuMax": "200000 100000",
+          "memoryMax": "402653184"
+        },
+        "app": {
+          "cpuMax": "200000 100000",
+          "memoryMax": "671088640"
+        },
+        "budget": {
+          "cpuMax": "200000 100000",
+          "memoryMax": "2147483648"
+        }
+      }
+    },
+    "fastify-postgres-redis (shared budget, writes off)": {
+      "trials": [
+        {
+          "file": "summary-fpr-2026-10-14T21-29-53-725Z.json",
+          "stamp": "20261014T212949Z",
+          "coldStartFirst200Ms": 1172,
+          "host": {
+            "samples": 18,
+            "discarded": 0,
+            "nonVmBusyCoresMedian": 3.59,
+            "nonVmBusyCoresMax": 4.66
+          },
+          "contention": null,
+          "steps": [
+            {
+              "contended": false,
+              "offered": 400,
+              "achieved": 400,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 2.43,
+              "p90": 3.77,
+              "p99": 11.21,
+              "quoteP99": 12.7,
+              "productP99": 8.88,
+              "dispatchLagP99": 3.05,
+              "productCacheHitRate": 0.5092,
+              "invalidations": 0,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.078,
+              "generatorSaturated": false,
+              "targetCpuLoad": 0.347,
+              "targetCpuMsPerOk": 0.868,
+              "targetMemoryBytes": 525299712,
+              "targetPageCacheBytes": 239210496,
+              "targetDiskReadBytes": 885248,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "postgres": 0.063,
+                "redis": 0.035,
+                "app": 0.247
+              },
+              "throttledSeconds": {
+                "postgres": 0,
+                "redis": 0,
+                "app": 0
+              },
+              "generatorContainerCores": 0.085,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.015,
+              "machineBusyCores": 0.8,
+              "unchargedVmCores": 0.355
+            },
+            {
+              "contended": false,
+              "offered": 800,
+              "achieved": 799.9,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 2.17,
+              "p90": 3.42,
+              "p99": 4.51,
+              "quoteP99": 4.74,
+              "productP99": 4.16,
+              "dispatchLagP99": 2.84,
+              "productCacheHitRate": 0.6202,
+              "invalidations": 0,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.092,
+              "generatorSaturated": false,
+              "targetCpuLoad": 0.451,
+              "targetCpuMsPerOk": 0.563,
+              "targetMemoryBytes": 528539648,
+              "targetPageCacheBytes": 239243264,
+              "targetDiskReadBytes": 0,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "postgres": 0.088,
+                "redis": 0.042,
+                "app": 0.317
+              },
+              "throttledSeconds": {
+                "postgres": 0,
+                "redis": 0,
+                "app": 0
+              },
+              "generatorContainerCores": 0.098,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.012,
+              "machineBusyCores": 0.98,
+              "unchargedVmCores": 0.423
+            },
+            {
+              "contended": false,
+              "offered": 1600,
+              "achieved": 1599.8,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 2.22,
+              "p90": 3.49,
+              "p99": 4.68,
+              "quoteP99": 4.98,
+              "productP99": 4.23,
+              "dispatchLagP99": 3.04,
+              "productCacheHitRate": 0.7353,
+              "invalidations": 0,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.123,
+              "generatorSaturated": false,
+              "targetCpuLoad": 0.635,
+              "targetCpuMsPerOk": 0.397,
+              "targetMemoryBytes": 536530944,
+              "targetPageCacheBytes": 241102848,
+              "targetDiskReadBytes": 885248,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "postgres": 0.145,
+                "redis": 0.052,
+                "app": 0.434
+              },
+              "throttledSeconds": {
+                "postgres": 0,
+                "redis": 0,
+                "app": 0
+              },
+              "generatorContainerCores": 0.131,
+              "otherContainerCores": -0.001,
+              "vmServicesCores": 0.014,
+              "machineBusyCores": 1.294,
+              "unchargedVmCores": 0.518
+            },
+            {
+              "contended": false,
+              "offered": 2400,
+              "achieved": 2399.7,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 2.41,
+              "p90": 3.82,
+              "p99": 5.16,
+              "quoteP99": 5.53,
+              "productP99": 4.68,
+              "dispatchLagP99": 3.49,
+              "productCacheHitRate": 0.8162,
+              "invalidations": 0,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.156,
+              "generatorSaturated": false,
+              "targetCpuLoad": 0.78,
+              "targetCpuMsPerOk": 0.325,
+              "targetMemoryBytes": 543932416,
+              "targetPageCacheBytes": 241102848,
+              "targetDiskReadBytes": 0,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "postgres": 0.2,
+                "redis": 0.058,
+                "app": 0.515
+              },
+              "throttledSeconds": {
+                "postgres": 0,
+                "redis": 0,
+                "app": 0
+              },
+              "generatorContainerCores": 0.161,
+              "otherContainerCores": -0.001,
+              "vmServicesCores": 0.011,
+              "machineBusyCores": 1.499,
+              "unchargedVmCores": 0.555
+            }
+          ]
+        }
+      ],
+      "budget": {
+        "mode": "shared",
+        "targetCpus": 2,
+        "targetMemoryMiB": 2048,
+        "cgroupParent": "machine-libpod_pod_0e3bad4f45389720928aa367428e2a8235e5c506e18b32f8b003d8928fb79649.slice",
+        "cpus": {
+          "app": 2,
+          "postgres": 2,
+          "redis": 2
+        },
+        "memoryMiB": {
+          "app": 640,
+          "postgres": 1024,
+          "redis": 384
+        }
+      },
+      "images": [
+        "docker.io/library/postgres:18.6-trixie@0336095afa072c685c93021dcfa4a5fee9cbce25ecd65121b58226c787afc0d0",
+        "docker.io/library/redis:8.10.2-trixie@9bd2e561aa8ab3aaf9d40021f90d845342b979250f12edac423d80137125c022",
+        "localhost/aab-fastify-postgres-redis-app:latest@066ca80d18515659006aa6e716d94f78011a7471e5051cbebfed20a239597c4a"
+      ],
+      "limits": {
+        "postgres": {
+          "cpuMax": "200000 100000",
+          "memoryMax": "1073741824"
+        },
+        "redis": {
+          "cpuMax": "200000 100000",
+          "memoryMax": "402653184"
+        },
+        "app": {
+          "cpuMax": "200000 100000",
+          "memoryMax": "671088640"
+        },
+        "budget": {
+          "cpuMax": "200000 100000",
+          "memoryMax": "2147483648"
+        }
+      }
+    }
+  }
+}

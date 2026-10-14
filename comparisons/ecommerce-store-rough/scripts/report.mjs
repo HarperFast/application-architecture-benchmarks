@@ -33,7 +33,11 @@ const all = files.map((file) => {
 	const s = JSON.parse(readFileSync(file, 'utf8'));
 	const share = s.conditions.harness?.quoteShare;
 	const mix = share === undefined || share === 0.5 ? '' : share === 1 ? ', quotes only' : share === 0 ? ', products only' : `, quote share ${share}`;
-	const parts = [...(s.target === 'fpr' ? [`${s.conditions.budget?.mode} budget`] : []), ...(mix ? [mix.slice(2)] : [])];
+	const diagnostics = [
+		...(s.conditions.harness?.writeRate === 0 ? ['writes off'] : []),
+		...('preStartHook' in s.conditions && !s.conditions.preStartHook ? ['no page-cache drop'] : []),
+	];
+	const parts = [...(s.target === 'fpr' ? [`${s.conditions.budget?.mode} budget`] : []), ...(mix ? [mix.slice(2)] : []), ...diagnostics];
 	const config = `${s.target === 'fpr' ? 'fastify-postgres-redis' : 'harper reference'}${parts.length ? ` (${parts.join(', ')})` : ''}`;
 	// Host (macOS) load outside the VM during the trial, from scripts/host-load.sh.
 	let host = null;
