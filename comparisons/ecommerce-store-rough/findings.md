@@ -8,7 +8,7 @@ Date: 2026-10-12. Contract, harness and reference: ecommerce-store branch `harpe
 
 On `dev`, at 2 CPU / 2 GiB per target, three alternating trials each, no contended steps ([session tables](results/session-20261012T193328Z.md)):
 
-- The Fastify + Postgres + Redis stack served every offered step through 6,400 rps without shedding, its three containers using 1.0 to 1.2 cores between them; p99 stayed in single-digit milliseconds through 4,800 rps in most trials, with occasional spikes to tens of milliseconds.
+- The Fastify + Postgres + Redis stack served every offered step through 5,600 rps without shedding in any trial (at 6,400 rps one of three trials shed 387 arrivals), its three containers using 1.0 to 1.2 cores between them; the median p99 across trials stayed in single-digit milliseconds at every step through 4,800 rps except 3,200 rps (52 ms), and individual trials spiked to 40 to 75 ms at 1,600 and 3,200 rps.
 - The Harper reference served every step through 2,400 rps without shedding, but its p99 rose to about 90 ms at 2,000 and 160 ms at 2,400 rps with CFS throttling, and it saturated its 2 CPUs at about 3,200 to 3,350 rps.
 - Target CPU per successful request at moderate load: about 0.6 ms for the reference, about 0.3 to 0.35 ms charged to the stack's containers, but the stack also caused about 0.5 core more VM kernel time per step that no cgroup was charged for (see trap 1). Counted in, per-request CPU is much closer than the cgroup figures say.
 - Cold start to first 200: 0.87 s [0.83 to 0.94] for the stack (three processes started together), 1.68 s [1.63 to 1.69] for the reference.
