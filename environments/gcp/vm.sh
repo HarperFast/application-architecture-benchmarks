@@ -182,18 +182,20 @@ cmd_describe() {
 cmd_ssh() {
 	need_auth
 	[ "${1:-}" = "--" ] && shift
-	"$GCLOUD" compute ssh "$NAME" --project="$PROJECT" --zone="$ZONE" --tunnel-through-iap -- "$@"
+	# --quiet: the first call creates ~/.ssh/google_compute_engine without a passphrase prompt,
+	# which an agent's shell cannot answer.
+	"${G[@]}" compute ssh "$NAME" --zone="$ZONE" --tunnel-through-iap -- "$@"
 }
 
 cmd_push() {
 	need_auth
-	"$GCLOUD" compute scp --project="$PROJECT" --zone="$ZONE" --tunnel-through-iap "$1" "${NAME}:${2:-}"
+	"${G[@]}" compute scp --zone="$ZONE" --tunnel-through-iap "$1" "${NAME}:${2:-}"
 }
 
 cmd_pull() {
 	need_auth
 	mkdir -p "$2"
-	"$GCLOUD" compute scp --project="$PROJECT" --zone="$ZONE" --tunnel-through-iap "${NAME}:$1" "$2/"
+	"${G[@]}" compute scp --zone="$ZONE" --tunnel-through-iap "${NAME}:$1" "$2/"
 }
 
 cmd_down() {

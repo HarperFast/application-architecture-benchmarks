@@ -34,7 +34,9 @@ mkdir -p "$OUT"
 	echo "== cpufreq (absent on a VM; on bare metal, this is what pinning would use)"
 	ls /sys/devices/system/cpu/cpu0/cpufreq 2>/dev/null || echo "absent"
 	echo "== guest-reported MHz (NOT the clock: a fixed compatibility value on C4)"
-	grep -m1 'cpu MHz' /proc/cpuinfo
+	grep -m1 'cpu MHz' /proc/cpuinfo || echo "none (arm64 reports no MHz)"
+	echo "== nmi_watchdog (1 holds a PMU counter per CPU; host-setup.sh sets 0)"
+	cat /proc/sys/kernel/nmi_watchdog
 } | tee "$OUT/platform.txt"
 
 # One busy worker per CPU in a slice. Runs inside the slice, so it also proves the slice's
@@ -66,12 +68,16 @@ probe all-busy load_all
 # non-zero and agree with the per-CPU figures above, or the PMU does not virtualize cgroup mode.
 echo "== cgroup-mode counting check"
 SECS=12 load_target_only
-perf stat -a -e cycles,task-clock --for-each-cgroup bench.slice/bench-target.slice -- sleep 8 2>&1 | tee "$OUT/cgroup-mode.txt"
+perf stat -a -e cycles,task-clock --for-each-cgroup bench.slice/bench-target.slice -- sleep 8 2>&1 | tee "$OUT/cgroup-mode.txt" \
+	|| FAIL+=("cgroup-mode perf stat exited non-zero; see cgroup-mode.txt")
 wait
 grep -qE 'not counted|not supported' "$OUT/cgroup-mode.txt" && FAIL+=("cgroup-mode cycles not counted")
 
 # mawk (Debian's default awk) has no asort, so the sort is sort(1).
-summarize() { # summarize <csv>: effective GHz = counted cycles / busy time, per CPU per second
+# cpu-clock counted per CPU is elapsed time, not busy time; the probe keeps every measured CPU
+# saturated, so cycles / cpu-clock is the effective frequency. sample.sh uses per-cgroup
+# task-clock, which is busy time, for the same ratio during a run.
+summarize() { # summarize <csv>: effective GHz = counted cycles / CPU time, per CPU per second
 	awk -F, '
 		/^#/ || NF < 5 || $3 !~ /^[0-9.]+$/ { next }
 		$5 ~ /cycles/    { cyc[$1 FS $2] = $3 }
@@ -85,6 +91,10 @@ summarize() { # summarize <csv>: effective GHz = counted cycles / busy time, per
 			printf "%-12s n=%d  min=%.3f  p50=%.3f  max=%.3f GHz  spread=%.1f%% of median\n", name, n, g[1], m, g[n], 100 * (g[n] - g[1]) / m
 		}'
 }
+# Field 7 of perf's CSV is the share of time the counter ran. Below 100 the value is a scaled
+# estimate, not a count, usually because something else holds a PMU counter.
+awk -F, '$5 ~ /cycles/ && $7 != "" && $7 + 0 < 100 { m = 1 } END { exit !m }' "$OUT/target-only.csv" "$OUT/all-busy.csv" \
+	&& FAIL+=("cycles multiplexed: a counter ran less than 100% of the time")
 echo "== effective GHz on target CPUs ($TARGET_CPUS)"
 { summarize "$OUT/target-only.csv"; summarize "$OUT/all-busy.csv"; } | tee "$OUT/summary.txt"
 if grep -q 'no countable cycles' "$OUT/summary.txt"; then

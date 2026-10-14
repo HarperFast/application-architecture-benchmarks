@@ -48,7 +48,9 @@ ids="$(docker ps -aq)"
 
 for repo in "$@"; do
 	name="repo-$(basename "$repo")"
-	x "$name" sh -c "cd '$repo' && git remote get-url origin && git rev-parse HEAD && git status --porcelain && git lfs ls-files -l"
+	# Run as root on the login user's checkout: git refuses that ("dubious ownership") unless told
+	# the directory is safe. Command-line config reaches git-lfs's own git calls too.
+	x "$name" sh -c "cd '$repo' && g() { git -c safe.directory='*' \"\$@\"; } && g remote get-url origin && g rev-parse HEAD && g status --porcelain && g lfs ls-files -l"
 	for m in "$repo"/dataset/*/MANIFEST.json; do
 		[ -f "$m" ] && sha256sum "$m" >> "$OUT/dataset-manifests.txt"
 	done

@@ -26,6 +26,7 @@ LOGIN_USER="${SUDO_USER:-}"
 
 say() { printf '\n==> %s\n' "$*"; }
 die() { echo "ERROR: $*" >&2; exit 1; }
+cpus() { local r c; for r in ${1//,/ }; do for ((c = ${r%-*}; c <= ${r#*-}; c++)); do echo "$c"; done; done; }   # "0-1,4" -> 0 1 4
 [ "$(id -u)" = 0 ] || die "run as root"
 
 say "sanity"
@@ -41,7 +42,9 @@ say "packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
 apt-get install -y ca-certificates curl gnupg git git-lfs jq tmux zstd xz-utils \
-	linux-perf sysstat numactl stress-ng mdadm
+	linux-perf sysstat numactl stress-ng
+# mdadm recommends a mail transport agent, which would add a resident daemon.
+apt-get install -y --no-install-recommends mdadm
 perf --version
 
 say "local SSD -> ${DATA}"
@@ -62,6 +65,9 @@ if ! mountpoint -q "$DATA"; then
 	mount -o defaults,noatime "$DEV" "$DATA"
 fi
 findmnt "$DATA"
+# Checkouts and session output belong to the login user, so clones and results need no sudo.
+mkdir -p "$DATA/src" "$DATA/out"
+[ -n "$LOGIN_USER" ] && chown "$LOGIN_USER:" "$DATA/src" "$DATA/out"
 
 say "docker engine (download.docker.com, signed)"
 install -m 0755 -d /etc/apt/keyrings /etc/docker
@@ -131,19 +137,34 @@ done
 
 say "kernel housekeeping off the measured CPUs"
 # Unbound workqueues (writeback and friends) run where this mask allows. It takes a hex mask, not a CPU list (0-1 is 3).
-mask=0; for r in ${HOUSEKEEPING_CPUS//,/ }; do for ((c = ${r%-*}; c <= ${r#*-}; c++)); do mask=$((mask | 1 << c)); done; done; printf '%x\n' "$mask" > /sys/devices/virtual/workqueue/cpumask || echo "workqueue cpumask not settable"
+mask=0; for c in $(cpus "$HOUSEKEEPING_CPUS"); do mask=$((mask | 1 << c)); done
+printf '%x\n' "$mask" > /sys/devices/virtual/workqueue/cpumask || echo "workqueue cpumask not settable"
+echo "workqueue cpumask=$(cat /sys/devices/virtual/workqueue/cpumask)"
 systemctl disable --now irqbalance 2>/dev/null || true
 for irq in /proc/irq/[0-9]*; do
 	# Managed IRQs (NVMe queues) refuse this; they are spread per CPU by design. Recorded, not hidden.
 	echo "$HOUSEKEEPING_CPUS" > "$irq/smp_affinity_list" 2>/dev/null || true
 done
-echo "IRQs still allowed on measured CPUs (managed or unmovable):"
+# effective_affinity_list is where an IRQ is delivered now, usually a single CPU of the allowed set.
+echo "IRQs delivered outside housekeeping CPUs ${HOUSEKEEPING_CPUS} (managed or unmovable):"
+hk=" $(cpus "$HOUSEKEEPING_CPUS" | tr '\n' ' ')"
 for irq in /proc/irq/[0-9]*; do
-	printf '%s %s\n' "${irq##*/}" "$(cat "$irq/effective_affinity_list" 2>/dev/null)"
-done | awk -v hk="$HOUSEKEEPING_CPUS" '$2 != hk' | head -40
-# Periodic jobs that would otherwise wake up mid-trial.
-systemctl disable --now apt-daily.timer apt-daily-upgrade.timer man-db.timer e2scrub_all.timer fstrim.timer 2>/dev/null || true
-systemctl disable --now unattended-upgrades 2>/dev/null || true
+	eff="$(cat "$irq/effective_affinity_list" 2>/dev/null)" || continue
+	for c in $(cpus "$eff"); do
+		[[ "$hk" == *" $c "* ]] && continue
+		printf '  irq %s on %s: %s\n' "${irq##*/}" "$eff" "$(find "$irq" -mindepth 1 -maxdepth 1 -type d -printf '%f ')"
+		break
+	done
+done
+# The hard-lockup detector holds a PMU counter on every CPU; perf needs them all for cycle counting.
+echo 'kernel.nmi_watchdog = 0' > /etc/sysctl.d/90-arch-bench.conf
+sysctl -q -p /etc/sysctl.d/90-arch-bench.conf || echo "WARN: nmi_watchdog not settable"
+echo "nmi_watchdog=$(cat /proc/sys/kernel/nmi_watchdog)"
+# Periodic jobs that would otherwise wake up mid-trial. One at a time: systemctl stops at a missing unit.
+for unit in apt-daily.timer apt-daily-upgrade.timer man-db.timer e2scrub_all.timer fstrim.timer \
+	sysstat-collect.timer sysstat-summary.timer unattended-upgrades.service; do
+	systemctl disable --now "$unit" 2>/dev/null && echo "disabled $unit" || true
+done
 
 say "swap and THP (recorded; distro defaults kept unless a target's documentation requires otherwise)"
 swapon --show || true

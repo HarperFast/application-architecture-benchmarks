@@ -77,6 +77,7 @@ gcloud projects create "$PROJECT" --folder="$FOLDER_ID"   # parent folder: see D
 gcloud billing projects link "$PROJECT" --billing-account="$BILLING_ACCOUNT"
 gcloud services enable compute.googleapis.com iap.googleapis.com billingbudgets.googleapis.com --project="$PROJECT"
 gcloud config configurations create arch-bench --no-activate
+gcloud config set account "$(gcloud config get-value account)" --configuration=arch-bench   # vm.sh runs in this configuration
 gcloud config set project "$PROJECT" --configuration=arch-bench
 gcloud config set compute/zone us-central1-a --configuration=arch-bench
 gcloud billing budgets create --billing-account="$BILLING_ACCOUNT" --display-name="arch-bench" \
@@ -129,7 +130,7 @@ The benchmark maintainer who creates the project owns it and is its only member 
 - **The budget.** `bench-target.slice` gets CPUs 2–3 and `MemoryMax=2G` with no swap, and every container of the target joins it. That is what "the same CPU and RAM, summed across all of its processes" means mechanically: the kernel enforces one cpuset and one memory limit over the whole stack, and the stack decides how to divide them, as it would on a real two-core, two-gigabyte machine. Per-container CPU quotas inside the slice are discouraged: they impose a split the architecture did not choose and add CFS throttling, which `sample.sh` records as `throttled_usec` if a target uses them anyway. Memory limits inside the slice are the target's own tuning, and each implementation still has to configure its processes (Postgres `shared_buffers`, Redis `maxmemory`, Node heap) to fit, as its vendor recommends.
 - **Page cache is budget.** On cgroup v2, file pages count against the cgroup that first read them, so a target's cache competes inside its 2 GiB. Pages read by anything outside the slice do not, which is why the page cache is dropped before every cold start (see [trials](#5-trials)).
 - **The generator.** `bench-generator.slice` gets CPUs 4–7 and 4 GiB. The generator's own CPU is recorded per step, and a step where it saturates is discarded. `bench/run.mjs` is single-threaded, so the headroom that matters is one core's worth, not four.
-- **Kernel noise off the measured CPUs.** OS services, the Docker daemon, unbound kernel workqueues (writeback), and every movable IRQ are confined to CPUs 0–1; `irqbalance` and periodic apt, man-db, and trim timers are disabled. NVMe queue IRQs are kernel-managed and stay spread across CPUs; the script lists them rather than hiding them.
+- **Kernel noise off the measured CPUs.** OS services, the Docker daemon, unbound kernel workqueues (writeback), and every movable IRQ are confined to CPUs 0–1; `irqbalance` and periodic apt, man-db, sysstat, and trim timers are disabled. NVMe queue IRQs are kernel-managed and stay spread across CPUs; the script lists them rather than hiding them. The NMI watchdog is off (`kernel.nmi_watchdog=0`), because it holds a PMU counter on every CPU that cycle counting needs.
 - **Networking.** Every target and the generator on one user-defined compose bridge, plain HTTP, as on tier 1. Containers of a multi-container stack talk over the same bridge, which is the cost a separated stack really pays, at less than a real network would charge. Bridge, MTU, and the iptables backend are recorded.
 - **Tools.** `perf` (Debian's `linux-perf`), `stress-ng`, `sysstat`, `numactl`, git and Git LFS, and Node 24 from nodejs.org, checksum-verified, for scripts that run on the host. Swap and transparent huge pages keep distro defaults and are recorded; if a target's documentation calls for host settings, they apply to every target in the session and are recorded.
 
@@ -168,7 +169,7 @@ From here on, work happens on the VM: `vm.sh ssh` (a fresh login, so the docker 
 ### 2. Qualify the clock
 
 ```bash
-S=/mnt/lssd/out/$SESSION; sudo mkdir -p $S && sudo chown $USER $S
+S=/mnt/lssd/out/$SESSION; mkdir -p $S   # host-setup.sh gives /mnt/lssd/out and /mnt/lssd/src to the login user
 sudo bash ~/probe-clock.sh $S/probe
 ```
 
