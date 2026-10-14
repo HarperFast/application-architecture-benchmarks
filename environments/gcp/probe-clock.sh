@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # probe-clock.sh — qualify an instance type: can it count cycles, and does its clock hold?
 #
-# UNEXECUTED. Written 2026-10-12 before any tier-2 host existed.
+# Ran 2026-10-14 on c4-standard-16-lssd (README "Qualification").
 #
 #   sudo bash probe-clock.sh [OUT_DIR] [SECONDS]
 #
@@ -31,9 +31,13 @@ mkdir -p "$OUT"
 	curl -sf -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/cpu-platform && echo
 	echo "== PMU as the kernel sees it"
 	dmesg | grep -iE 'Performance Events|PMU' | head -5 || echo "(no PMU lines in dmesg)"
-	echo "== cpufreq (absent on a VM; on bare metal, this is what pinning would use)"
-	ls /sys/devices/system/cpu/cpu0/cpufreq 2>/dev/null || echo "absent"
-	echo "== guest-reported MHz (NOT the clock: a fixed compatibility value on C4)"
+	# On C4 the guest gets intel_pstate in passive mode with one P-state at the nominal 2.3 GHz,
+	# and no setting moves the clock (README "The clock on GCP"). On bare metal, this is where
+	# pinning would start.
+	echo "== cpufreq"
+	grep -s . /sys/devices/system/cpu/cpu0/cpufreq/{scaling_driver,scaling_governor,cpuinfo_min_freq,cpuinfo_max_freq} \
+		/sys/devices/system/cpu/intel_pstate/{status,num_pstates,no_turbo} || echo "absent"
+	echo "== guest-reported MHz (a counter-derived snapshot, not a clock record)"
 	grep -m1 'cpu MHz' /proc/cpuinfo || echo "none (arm64 reports no MHz)"
 	echo "== nmi_watchdog (1 holds a PMU counter per CPU; host-setup.sh sets 0)"
 	cat /proc/sys/kernel/nmi_watchdog

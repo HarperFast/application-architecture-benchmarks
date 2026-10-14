@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # sample.sh — host-side recorder for a tier-2 session: cycles, CPU, memory, steal, maintenance.
 #
-# UNEXECUTED. Written 2026-10-12 before any tier-2 host existed.
+# Ran 2026-10-14 on c4-standard-16-lssd (README "Qualification").
 #
-#   sudo systemd-run --unit=arch-bench-sampler bash sample.sh /mnt/lssd/out/<session>/samples
+#   sudo systemd-run --collect --unit=arch-bench-sampler bash sample.sh /mnt/lssd/out/<session>/samples
 #   ...run trials...
 #   sudo systemctl stop arch-bench-sampler
 #
@@ -37,7 +37,9 @@ ms > "$OUT/perf.start-epoch-ms"
 # interpolated at a boundary and needs no finer sampling.
 perf stat -a -x, -I 250 -e cycles,instructions,task-clock --for-each-cgroup "$SLICES" -o "$OUT/perf.csv" &
 PERF=$!
-trap 'kill "$PERF" 2>/dev/null; wait "$PERF" 2>/dev/null; exit 0' INT TERM EXIT
+# `systemctl stop` signals perf too, so it may be gone already: under set -e a failing kill
+# would end the trap with status 1 and mark the unit failed.
+trap 'kill "$PERF" 2>/dev/null || true; wait "$PERF" 2>/dev/null || true; exit 0' INT TERM EXIT
 
 echo "epoch_ms,cgroup,usage_usec,user_usec,system_usec,nr_throttled,throttled_usec,memory_current,oom_kill" > "$OUT/cgroups.csv"
 echo "epoch_ms,user,nice,system,idle,iowait,irq,softirq,steal" > "$OUT/host.csv"

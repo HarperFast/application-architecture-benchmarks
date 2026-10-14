@@ -1,0 +1,18 @@
+# Synthetic tier-2 load: a two-container "stack" sharing bench-target.slice, and a light generator.
+# duty = share of each 100 ms a container spins; the rest it sleeps.
+x-burn: &burn
+  image: node:24-slim
+  command: ["node", "-e", "const d=+process.env.DUTY;setInterval(()=>{const t=Date.now();while(Date.now()-t<100*d){}},100)"]
+services:
+  app:
+    <<: *burn
+    environment: { DUTY: "0.5" }
+    cgroup_parent: bench-target.slice
+  db:
+    <<: *burn
+    environment: { DUTY: "1.0" }
+    cgroup_parent: bench-target.slice
+  gen:
+    <<: *burn
+    environment: { DUTY: "0.25" }
+    cgroup_parent: bench-generator.slice

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # vm.sh — create, reach, and delete the tier-2 benchmark VM on GCP.
 #
-# PARTLY EXECUTED: preflight ran 2026-10-14; up, ssh, push, pull, and down have not. Read `vm.sh up --dry-run`
-# output before running it for real, and fix this file when reality disagrees with it.
+# Ran 2026-10-14 (README "Qualification"): preflight, up, status, describe, ssh, push, pull, down.
+# NAT mode, C4A, and metal have not run. Read `vm.sh up --dry-run` output before a real run.
 #
 #   vm.sh preflight                 auth, billing, quota, and org-policy checks (read only)
 #   vm.sh up [--dry-run]            network + IAP rule (+ Cloud NAT if needed), then the VM
@@ -25,7 +25,7 @@ PROJECT="${PROJECT:-harper-arch-bench}"
 GCLOUD="${GCLOUD:-gcloud}"
 # Keep these commands from ever acting on another project through a shared default config.
 export CLOUDSDK_ACTIVE_CONFIG_NAME="${CLOUDSDK_ACTIVE_CONFIG_NAME:-arch-bench}"
-ZONE="${ZONE:-us-central1-a}"
+ZONE="${ZONE:-us-central1-a}"                     # first choice; `up` falls back to the region's other zones
 REGION="${ZONE%-*}"
 MACHINE="${MACHINE:-c4-standard-16-lssd}"
 FAMILY="$(echo "${MACHINE%%-*}" | tr 'a-z' 'A-Z')"   # c4-standard-16-lssd -> C4, as quotas name it
@@ -52,6 +52,14 @@ G=("$GCLOUD" --project="$PROJECT" --quiet)
 need_auth() {
 	"$GCLOUD" auth print-access-token >/dev/null 2>&1 \
 		|| die "gcloud credentials expired or missing. A human runs: gcloud auth login   (then re-run this command; every step is safe to repeat)"
+}
+
+# The VM lives wherever `up` found capacity. Every later command looks its zone up instead of
+# assuming ZONE.
+locate() {
+	local z
+	z="$("${G[@]}" compute instances list --filter="name=${NAME}" --format='value(zone.basename())' 2>/dev/null | head -1)"
+	if [ -n "$z" ]; then ZONE="$z"; REGION="${ZONE%-*}"; fi
 }
 
 cmd_preflight() {
@@ -122,8 +130,10 @@ ensure_network() {
 cmd_up() {
 	[ "${1:-}" = "--dry-run" ] && DRY_RUN=1
 	[ "$DRY_RUN" = 1 ] || need_auth
-	if [ "$DRY_RUN" = 0 ] && "${G[@]}" compute instances describe "$NAME" --zone="$ZONE" >/dev/null 2>&1; then
-		die "$NAME already exists in $ZONE. Use it, or run 'vm.sh down' if it is yours."
+	if [ "$DRY_RUN" = 0 ]; then
+		local where
+		where="$("${G[@]}" compute instances list --filter="name=${NAME}" --format='value(zone.basename())')"
+		[ -z "$where" ] || die "$NAME already exists in $where. Use it, or run 'vm.sh down' if it is yours."
 	fi
 	# Machine-series specific flags. See README "Instance": these are what make the clock
 	# bounded and measurable, and what turn 2 vCPUs into 2 whole cores.
@@ -156,8 +166,28 @@ cmd_up() {
 	esac
 	echo "egress: $mode$( [ "$DRY_RUN" = 1 ] && [ "$NETWORK_MODE" = auto ] && echo ' (dry run does not read the org policy; vm.sh preflight does)')"
 
+	# C4 -lssd capacity runs out per zone: on 2026-10-14, us-central1-a and -b refused this shape
+	# and -c had it. Try ZONE, then every other zone of the region that offers the machine type.
+	local zones="$ZONE" z out created=""
+	[ "$DRY_RUN" = 1 ] || zones+=" $("${G[@]}" compute machine-types list --filter="name=${MACHINE} AND zone~^${REGION}-" \
+		--format='value(zone)' | { grep -vx "$ZONE" || true; } | sort | tr '\n' ' ')"
+	for z in $zones; do
+		if out="$(create "$z" 2>&1)"; then echo "$out"; ZONE="$z"; created=1; break; fi
+		echo "$out" >&2
+		grep -qE 'stockout|ZONE_RESOURCE_POOL_EXHAUSTED' <<<"$out" || die "create failed in $z, and not for lack of capacity"
+		echo "no ${MACHINE} capacity in ${z}; trying the next zone" >&2
+	done
+	[ "$DRY_RUN" = 1 ] && { echo "dry run: without capacity in ${ZONE}, up tries the region's other zones"; return; }
+	[ -n "$created" ] || die "no ${MACHINE} capacity in any zone of ${REGION}; try later or set ZONE to another region's zone"
+
+	echo
+	echo "created in ${ZONE}. next: vm.sh push environments/gcp/host-setup.sh && vm.sh ssh -- sudo bash host-setup.sh"
+	echo "this VM deletes itself ${MAX_RUN} after boot. Pull results before then."
+}
+
+create() { # create <zone>; reads cpu_flags, image_family, maintenance, nic from cmd_up
 	run "${G[@]}" compute instances create "$NAME" \
-		--zone="$ZONE" \
+		--zone="$1" \
 		--machine-type="$MACHINE" \
 		"${cpu_flags[@]}" \
 		--image-family="$image_family" --image-project=debian-cloud \
@@ -168,31 +198,30 @@ cmd_up() {
 		--no-service-account --no-scopes \
 		--maintenance-policy="$maintenance" \
 		--max-run-duration="$MAX_RUN" --instance-termination-action=DELETE
-
-	echo
-	echo "next: vm.sh push environments/gcp/host-setup.sh && vm.sh ssh -- sudo bash host-setup.sh"
-	echo "this VM deletes itself ${MAX_RUN} after boot. Pull results before then."
 }
 
 cmd_status() {
-	need_auth
+	need_auth; locate
 	"${G[@]}" compute instances list --filter='labels.arch-bench:*' \
-		--format='table(name,zone.basename(),machineType.basename(),status,labels.session,labels.comparison,scheduling.maxRunDuration.seconds)'
+		--format='table(name,zone.basename(),machineType.basename(),status,labels.session,labels.comparison,resourceStatus.scheduling.terminationTimestamp:label=SELF_DELETE_AT)'
 	# C4 gives 7 days' notice of host maintenance. A live migration during a trial invalidates it.
-	"${G[@]}" compute instances describe "$NAME" --zone="$ZONE" --format='yaml(resourceStatus.upcomingMaintenance)' 2>/dev/null || true
+	local m
+	m="$("${G[@]}" compute instances describe "$NAME" --zone="$ZONE" --format='value(resourceStatus.upcomingMaintenance)' 2>/dev/null)" \
+		&& echo "upcoming maintenance for ${NAME}: ${m:-none}"
+	return 0
 }
 
 # The instance's GCP-side configuration, for the run-conditions record: machine type, CPU
 # platform, turbo mode, threads per core, PMU type, maintenance policy, disks. The guest
 # cannot see most of this. Metadata (startup scripts, ssh keys) is left out.
 cmd_describe() {
-	need_auth
+	need_auth; locate
 	"${G[@]}" compute instances describe "$NAME" --zone="$ZONE" \
 		--format='json(name,zone,machineType,cpuPlatform,minCpuPlatform,advancedMachineFeatures,scheduling,disks[].type,disks[].diskSizeGb,disks[].interface,labels,networkInterfaces[].nicType,creationTimestamp,lastStartTimestamp)'
 }
 
 cmd_ssh() {
-	need_auth
+	need_auth; locate
 	[ "${1:-}" = "--" ] && shift
 	# --quiet: the first call creates ~/.ssh/google_compute_engine without a passphrase prompt,
 	# which an agent's shell cannot answer.
@@ -200,18 +229,18 @@ cmd_ssh() {
 }
 
 cmd_push() {
-	need_auth
+	need_auth; locate
 	"${G[@]}" compute scp --zone="$ZONE" --tunnel-through-iap "$1" "${NAME}:${2:-}"
 }
 
 cmd_pull() {
-	need_auth
+	need_auth; locate
 	mkdir -p "$2"
 	"${G[@]}" compute scp --zone="$ZONE" --tunnel-through-iap "${NAME}:$1" "$2/"
 }
 
 cmd_down() {
-	need_auth
+	need_auth; locate
 	if "${G[@]}" compute instances describe "$NAME" --zone="$ZONE" >/dev/null 2>&1; then
 		"${G[@]}" compute instances delete "$NAME" --zone="$ZONE"
 	else

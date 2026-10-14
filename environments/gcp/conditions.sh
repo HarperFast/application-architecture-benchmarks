@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # conditions.sh — snapshot the host-side run conditions for a tier-2 session or trial.
 #
-# UNEXECUTED. Written 2026-10-12 before any tier-2 host existed.
+# Ran 2026-10-14 on c4-standard-16-lssd (README "Qualification").
 #
 #   sudo bash conditions.sh OUT_DIR [REPO_DIR...]
 #
@@ -16,9 +16,11 @@ mkdir -p "$OUT"
 x() { local name="$1"; shift; { echo "\$ $*"; "$@"; } > "$OUT/$name.txt" 2>&1; }
 
 date -u +%FT%TZ > "$OUT/captured-at.txt"
-# Instance metadata without attributes (ssh keys), service accounts, or addresses.
+# Instance metadata without attributes (ssh keys), guest attributes (host keys), credentials,
+# service accounts, or addresses. Empty on a 2026-10 C4 VM, but this record is published.
 curl -sf -H 'Metadata-Flavor: Google' 'http://metadata.google.internal/computeMetadata/v1/instance/?recursive=true' \
-	| jq 'del(.attributes, .serviceAccounts, .networkInterfaces)' > "$OUT/gce-instance.json"
+	| jq 'del(.attributes, .guestAttributes, .credentials, .gceWorkloadCertificates, .partnerAttributes, .serviceAccounts, .networkInterfaces)' \
+	> "$OUT/gce-instance.json"
 
 x os            cat /etc/os-release
 x kernel        uname -a
@@ -27,7 +29,7 @@ x lscpu         lscpu
 x lscpu-e       lscpu -e
 x numa          numactl -H
 x clocksource   cat /sys/devices/system/clocksource/clocksource0/current_clocksource
-x cpufreq       ls -la /sys/devices/system/cpu/cpu0/cpufreq
+x cpufreq       sh -c 'grep -s . /sys/devices/system/cpu/cpu*/cpufreq/scaling_* /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_* /sys/devices/system/cpu/intel_pstate/*'
 x memory        sh -c 'free -m; swapon --show'
 x thp           sh -c 'grep . /sys/kernel/mm/transparent_hugepage/enabled /sys/kernel/mm/transparent_hugepage/defrag'
 x sysctl        sysctl -a

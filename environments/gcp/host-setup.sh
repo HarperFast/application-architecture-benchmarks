@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # host-setup.sh — turn a fresh Debian 13 tier-2 VM into a measurement host. Run as root, once.
 #
-# UNEXECUTED. Written 2026-10-12 before any tier-2 host existed. Every step prints what it
-# did; read the output, and fix this file when reality disagrees with it.
+# Ran 2026-10-14 on c4-standard-16-lssd, twice on the same VM (README "Qualification").
+# Every step prints what it did; read the output, and fix this file when reality disagrees.
 #
 #   sudo bash host-setup.sh
 #
@@ -145,11 +145,14 @@ for irq in /proc/irq/[0-9]*; do
 	# Managed IRQs (NVMe queues) refuse this; they are spread per CPU by design. Recorded, not hidden.
 	echo "$HOUSEKEEPING_CPUS" > "$irq/smp_affinity_list" 2>/dev/null || true
 done
-# effective_affinity_list is where an IRQ is delivered now, usually a single CPU of the allowed set.
-echo "IRQs delivered outside housekeeping CPUs ${HOUSEKEEPING_CPUS} (managed or unmovable):"
+# Report the allowed set, not effective_affinity_list: x86 moves an IRQ at its next interrupt,
+# so one that never fires (pciehp, rtc0) keeps showing its old CPU after a successful move.
+# On C4 what remains is the managed NVMe queues, one per CPU, so a target's disk completions
+# land on the target's own CPUs; plus the timer and cascade IRQs, which never move.
+echo "IRQs still allowed outside housekeeping CPUs ${HOUSEKEEPING_CPUS} (managed or unmovable):"
 hk=" $(cpus "$HOUSEKEEPING_CPUS" | tr '\n' ' ')"
 for irq in /proc/irq/[0-9]*; do
-	eff="$(cat "$irq/effective_affinity_list" 2>/dev/null)" || continue
+	eff="$(cat "$irq/smp_affinity_list" 2>/dev/null)" || continue
 	for c in $(cpus "$eff"); do
 		[[ "$hk" == *" $c "* ]] && continue
 		printf '  irq %s on %s: %s\n' "${irq##*/}" "$eff" "$(find "$irq" -mindepth 1 -maxdepth 1 -type d -printf '%f ')"

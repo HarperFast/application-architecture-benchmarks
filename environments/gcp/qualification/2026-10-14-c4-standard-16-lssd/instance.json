@@ -1,0 +1,46 @@
+{
+  "machineType": "c4-standard-16-lssd",
+  "zone": "us-central1-c",
+  "cpuPlatform": "Intel Granite Rapids",
+  "advancedMachineFeatures": {
+    "performanceMonitoringUnit": "ARCHITECTURAL",
+    "threadsPerCore": 1,
+    "turboMode": "ALL_CORE_MAX"
+  },
+  "scheduling": {
+    "onHostMaintenance": "MIGRATE",
+    "automaticRestart": true,
+    "provisioningModel": "STANDARD",
+    "instanceTerminationAction": "DELETE",
+    "maxRunDuration": {
+      "nanos": 0,
+      "seconds": "28800"
+    }
+  },
+  "disks": [
+    {
+      "type": "PERSISTENT",
+      "interface": "NVME",
+      "diskSizeGb": "50"
+    },
+    {
+      "type": "SCRATCH",
+      "interface": "NVME",
+      "diskSizeGb": "375"
+    },
+    {
+      "type": "SCRATCH",
+      "interface": "NVME",
+      "diskSizeGb": "375"
+    }
+  ],
+  "nicType": [
+    "GVNIC"
+  ],
+  "labels": {
+    "arch-bench": "arch-bench-ethan",
+    "comparison": "gcp-qualification",
+    "session": "20261014t2037"
+  },
+  "creationTimestamp": "2026-10-14T13:40:01.092-07:00"
+}
