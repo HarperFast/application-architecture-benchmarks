@@ -1,3 +1,5 @@
+> **Superseded.** Dataset `dev` generator 0.4.0, ecommerce-store `1f4a350`. Replaced by the generator 0.5.0 session on ecommerce-store `5c32151`; kept for the record.
+
 ### fastify-postgres-redis (shared budget, quotes only)
 
 1 trial(s), 0 with at least one contended step (those steps excluded; n = clean observations per row). Cold start to first 200: 843 ms. Contention at start: none. Host (macOS) cores busy outside the VM, mean per trial: 1.4.

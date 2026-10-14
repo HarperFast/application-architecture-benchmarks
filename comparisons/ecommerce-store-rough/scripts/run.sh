@@ -59,6 +59,18 @@ setup() {
 	export SCALE="${SCALE:-dev}"
 	[ "$SCALE" = dev ] || { echo "only SCALE=dev is wired up in this rough cut" >&2; exit 1; }
 	export DATASET_DIR="$ECOMMERCE_STORE_DIR/dataset/$SCALE"
+	# Snapshots are named by the dataset generator version too, so a regenerated dataset writes
+	# a new snapshot beside the old one (as the reference's orchestrator does).
+	DATASET_GENERATOR="$(node -p "require('$DATASET_DIR/MANIFEST.json').generatorVersion")"
+	export DATASET_GENERATOR
+	# A restore runs in its own container, so the restored files sit in the VM's page cache charged
+	# to no target. Drop it between the restore and the measured start, for every target, as the
+	# reference's orchestrator does (its PRE_START_HOOK). On a Podman machine this also cools every
+	# other container on the machine.
+	if [ -z "${PRE_START_HOOK+set}" ] && [ "$CLI" = podman ] && podman machine inspect >/dev/null 2>&1; then
+		PRE_START_HOOK="podman machine ssh 'sync; echo 3 | sudo tee /proc/sys/vm/drop_caches >/dev/null'"
+	fi
+	export PRE_START_HOOK="${PRE_START_HOOK:-}"
 	export RESULTS_DIR="$RAW"
 	export TARGET_CPUS="${TARGET_CPUS:-2}" TARGET_MEMORY_MIB="${TARGET_MEMORY_MIB:-2048}"
 	export BUDGET="${BUDGET:-shared}"
@@ -91,6 +103,7 @@ configure_budget() {
 	node -e "const m=$APP_MEMORY_MIB+$PG_MEMORY_MIB+$REDIS_MEMORY_MIB; if (m!==$TARGET_MEMORY_MIB) { console.error('memory split sums to '+m+' MiB, budget is $TARGET_MEMORY_MIB'); process.exit(1) }"
 }
 
+snapshot_of() { echo "$1-$SCALE-dataset-$DATASET_GENERATOR.tar.gz"; }
 services_of() { if [ "$1" = fpr ]; then echo "postgres redis app"; else echo "harper"; fi; }
 profile_of() { if [ "$1" = harper ]; then echo "--profile harper"; fi; }
 port_of() { if [ "$1" = fpr ]; then echo "${APP_HOST_PORT:-39926}"; else echo "${HARPER_HOST_PORT:-39936}"; fi; }
@@ -125,16 +138,16 @@ load() {
 	say "snapshotting $target"
 	stop_target "$target"
 	"$CLI" run --rm -v "$(volume_of "$target"):/data:ro" -v "$SNAP:/snap" docker.io/library/postgres:18.6-trixie \
-		tar -C /data -czf "/snap/$target-$SCALE.tar.gz" .
-	ls -la "$SNAP/$target-$SCALE.tar.gz" >&2
+		tar -C /data -czf "/snap/$(snapshot_of "$target")" .
+	ls -la "$SNAP/$(snapshot_of "$target")" >&2
 }
 
 restore() {
 	local target="$1"
-	[ -f "$SNAP/$target-$SCALE.tar.gz" ] || { echo "no snapshot for $target; run: scripts/run.sh load $target" >&2; exit 1; }
+	[ -f "$SNAP/$(snapshot_of "$target")" ] || { echo "no $(snapshot_of "$target"); run: scripts/run.sh load $target" >&2; exit 1; }
 	stop_target "$target"
 	"$CLI" run --rm -v "$(volume_of "$target"):/data" -v "$SNAP:/snap:ro" docker.io/library/postgres:18.6-trixie \
-		sh -c 'find /data -mindepth 1 -delete && tar -C /data -xzf "/snap/$0-$1.tar.gz"' "$target" "$SCALE"
+		sh -c 'find /data -mindepth 1 -delete && tar -C /data -xzf "/snap/$0"' "$(snapshot_of "$target")"
 }
 
 # Create (or re-create, if the budget changed) the target's containers without starting them, then
@@ -147,6 +160,7 @@ cold_start() {
 	compose $(profile_of "$target") up --no-start $(services_of "$target") >/dev/null
 	local ctrs=()
 	for s in $(services_of "$target"); do ctrs+=("$(ctr "$s")"); done
+	if [ -n "$PRE_START_HOOK" ]; then bash -c "$PRE_START_HOOK"; fi
 	t0=$(node -e 'console.log(Date.now())')
 	"$CLI" start "${ctrs[@]}" >/dev/null
 	# The reference orchestrator's probe, from outside the target (no process charged to its
@@ -189,15 +203,23 @@ conditions_json() {
 	local target="$1" stamp="$2"
 	local file="$RAW/conditions-$target-$stamp.json"
 	local others; others=$("$CLI" stats --no-stream --format json 2>/dev/null || echo '[]')
-	local images=""
-	for s in $(services_of "$target"); do images="$images $("$CLI" inspect --format '{{.ImageName}}@{{.Image}}' "$(ctr "$s")")"; done
+	local images="" applied_memory=0
+	for s in $(services_of "$target"); do
+		images="$images $("$CLI" inspect --format '{{.ImageName}}@{{.Image}}' "$(ctr "$s")")"
+		applied_memory=$(( applied_memory + $("$CLI" inspect --format '{{.HostConfig.Memory}}' "$(ctr "$s")") ))
+	done
 	node -e '
-		const [file, target, stamp, cold, coldAny, contention, others, images, budget, aabCommit, aabDirty, esCommit, esDirty, machine] = process.argv.slice(1);
+		const [file, target, stamp, cold, coldAny, contention, others, images, budget, aabCommit, aabDirty, esCommit, esDirty, machine, appliedMemory, snapshot] = process.argv.slice(1);
 		const env = process.env;
 		const out = {
 			tier: 1,
 			stamp, target,
 			coldStart: { ms: +cold, firstNon5xxMs: coldAny ? +coldAny : null, probe: "host, published port, ecommerce-store containers/wait-ready.mjs (25 ms), every target process started at once" },
+			// Read by ecommerce-store verify-run-record.mjs: the page-cache drop before the cold start,
+			// and the memory the runtime applied to the target (summed over its containers).
+			preStartHook: env.PRE_START_HOOK || null,
+			target: { applied: { memoryBytes: +appliedMemory } },
+			snapshot: { file: snapshot, datasetGenerator: env.DATASET_GENERATOR },
 			code: {
 				benchmarksRepo: { commit: aabCommit, dirty: aabDirty === "1" },
 				ecommerceStore: { commit: esCommit, dirty: esDirty === "1" },
@@ -221,7 +243,8 @@ conditions_json() {
 	' "$file" "$target" "$stamp" "$COLD_MS" "$COLD_ANY_MS" "$CONTENTION" "$others" "$images" "$BUDGET" \
 		"$(git -C "$REPO" rev-parse HEAD)" "$([ -n "$(git -C "$REPO" status --porcelain)" ] && echo 1 || echo 0)" \
 		"$(git -C "$ECOMMERCE_STORE_DIR" rev-parse HEAD)" "$([ -n "$(git -C "$ECOMMERCE_STORE_DIR" status --porcelain)" ] && echo 1 || echo 0)" \
-		"$("$CLI" info --format json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const i=JSON.parse(s);console.log(JSON.stringify({cpus:i.host.cpus,memTotal:i.host.memTotal,kernel:i.host.kernel,arch:i.host.arch,os:i.host.os,distribution:i.host.distribution,podman:i.version.Version,cgroups:i.host.cgroupVersion,runtime:i.host.ociRuntime?.name}))})')"
+		"$("$CLI" info --format json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const i=JSON.parse(s);console.log(JSON.stringify({cpus:i.host.cpus,memTotal:i.host.memTotal,kernel:i.host.kernel,arch:i.host.arch,os:i.host.os,distribution:i.host.distribution,podman:i.version.Version,cgroups:i.host.cgroupVersion,runtime:i.host.ociRuntime?.name}))})')" \
+		"$applied_memory" "$(snapshot_of "$target")"
 	echo "$file"
 }
 
@@ -286,7 +309,7 @@ bench() {
 conformance() {
 	local target="$1" stamp out
 	stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-	out="$HERE/results/conformance-$target.json"
+	out="$HERE/results/conformance-$target-dataset-$DATASET_GENERATOR.json"
 	restore "$target"
 	cold_start "$target"
 	say "conformance suite against $target"
@@ -304,7 +327,7 @@ diff_reference() {
 	restore fpr; restore harper
 	cold_start fpr; cold_start harper
 	node "$HERE/scripts/diff-reference.mjs" --a "http://localhost:$(port_of harper)" --b "http://localhost:$(port_of fpr)" \
-		--dataset "$DATASET_DIR" --out "$HERE/results/diff-reference.json"
+		--dataset "$DATASET_DIR" --out "$HERE/results/diff-reference-dataset-$DATASET_GENERATOR.json"
 	stop_target harper
 }
 
@@ -312,7 +335,7 @@ diff_reference() {
 # every view must carry the last price written within FRESH_MS. Mutates prices: restores after.
 coherence() {
 	local target="$1"
-	local out="$HERE/results/coherence-$target.txt"
+	local out="$HERE/results/coherence-$target-dataset-$DATASET_GENERATOR.txt"
 	restore "$target"
 	cold_start "$target"
 	say "verify-coherence against $target"

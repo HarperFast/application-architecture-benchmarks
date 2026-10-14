@@ -21,6 +21,13 @@ const unchargedVmCores = (step) => step.machine?.unchargedCores ?? null;
 const contended = (step) => !!step.machine?.contended;
 const coresOf = (step, c) => step.machine?.perGroup?.[c]?.cores ?? null;
 const throttleOf = (step, c) => step.machine?.perGroup?.[c]?.throttledSeconds ?? 0;
+/** Summed over the target's containers, from the harness's own cgroup accounting (null if absent). */
+const componentSum = (step, field) => {
+	const list = step.targetComponents;
+	if (!list?.length || list.some((c) => c[field] === null || c[field] === undefined)) return null;
+	return list.reduce((sum, c) => sum + c[field], 0);
+};
+const MiB = 2 ** 20;
 
 const all = files.map((file) => {
 	const s = JSON.parse(readFileSync(file, 'utf8'));
@@ -59,6 +66,11 @@ const fmt = (xs, digits = 1) => {
 
 const configs = [...new Set(trials.map((t) => t.config))];
 const out = [];
+{
+	const c = trials[0].summary.conditions;
+	const commits = [...new Set(trials.map((t) => t.summary.conditions.code?.ecommerceStore?.commit?.slice(0, 7)))].join(', ');
+	out.push(`Dataset \`${c.dataset?.scale}\` generator ${c.dataset?.generatorVersion} · ecommerce-store ${commits} · tier ${c.tier ?? 1} signal, not results.`, '');
+}
 const compact = { session: basename(logPath), trialsWithContendedSteps: discarded.map((t) => t.file), configs: {} };
 
 for (const config of configs) {
@@ -79,6 +91,8 @@ for (const config of configs) {
 				productCacheHitRate: s.productCacheHitRate, invalidations: s.invalidations, writeFailures: s.writeFailures,
 				generatorCpuLoad: s.generatorCpuLoad, generatorSaturated: s.generatorSaturated,
 				targetCpuLoad: s.targetCpuLoad, targetCpuMsPerOk: s.targetCpuMsPerOk,
+				targetMemoryBytes: componentSum(s, 'memoryCurrentBytes'), targetPageCacheBytes: componentSum(s, 'pageCacheBytes'),
+				targetDiskReadBytes: componentSum(s, 'diskReadBytes'), targetPageCacheRefaults: componentSum(s, 'pageCacheRefaults'),
 				cores: Object.fromEntries(components.map((c) => [c, coresOf(s, c)])),
 				throttledSeconds: Object.fromEntries(components.map((c) => [c, throttleOf(s, c)])),
 				generatorContainerCores: s.machine?.generatorContainerCores ?? null,
@@ -95,7 +109,7 @@ for (const config of configs) {
 
 	out.push(`### ${config}`, '');
 	out.push(`${group.length} trial(s), ${group.filter((t) => t.contended).length} with at least one contended step (those steps excluded; n = clean observations per row). Cold start to first 200: ${fmt(group.map((t) => t.summary.conditions.lifecycle?.coldStartFirst200Ms), 0)} ms. Contention at start: ${group.map((t) => t.summary.conditions.contentionAtStart?.busyOtherContainers || 'none').join(', ')}. Host (macOS) cores busy outside the VM, mean per trial: ${group.map((t) => t.host?.nonVmBusyCoresMean ?? '-').join(', ')}.`, '');
-	const header = ['offered rps', 'n', 'achieved rps', 'shed', 'p50 ms', 'p99 ms', 'quote p99', 'product p99', 'product hit %', ...components.map((c) => `${c} cores`), 'target cores', 'target CPU ms/req', 'uncharged VM cores', 'gen CPU'];
+	const header = ['offered rps', 'n', 'achieved rps', 'shed', 'p50 ms', 'p99 ms', 'quote p99', 'product p99', 'product hit %', ...components.map((c) => `${c} cores`), 'target cores', 'target CPU ms/req', 'target memory MiB', 'disk reads MiB', 'uncharged VM cores', 'gen CPU'];
 	out.push(`| ${header.join(' | ')} |`, `|${header.map(() => '-').join('|')}|`);
 	const rates = first.steps.map((s) => s.offeredRate);
 	for (const rate of rates) {
@@ -122,6 +136,8 @@ for (const config of configs) {
 				...components.map((c) => fmt(steps.map((s) => coresOf(s, c)), 2) + throttle(c)),
 				fmt(steps.map((s) => s.targetCpuLoad), 2),
 				fmt(steps.map((s) => s.targetCpuMsPerOk), 3),
+				fmt(steps.map((s) => (componentSum(s, 'memoryCurrentBytes') ?? NaN) / MiB), 0),
+				fmt(steps.map((s) => (componentSum(s, 'diskReadBytes') ?? NaN) / MiB), 1),
 				fmt(steps.map((s) => unchargedVmCores(s)), 2),
 				fmt(steps.map((s) => s.generatorCpuLoad), 2) + (steps.some((s) => s.generatorSaturated) ? ` (${steps.filter((s) => s.generatorSaturated).length}x gen flag)` : ''),
 			].join(' | ')} |`

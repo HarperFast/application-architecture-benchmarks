@@ -1,0 +1,21 @@
+{
+  "a": "http://localhost:39936",
+  "b": "http://localhost:39926",
+  "compared": 42004,
+  "equal": 42004,
+  "statusMismatch": 0,
+  "bodyMismatch": 0,
+  "byKind": {
+    "quote": {
+      "compared": 2001,
+      "equal": 2001,
+      "mismatched": 0
+    },
+    "product": {
+      "compared": 40003,
+      "equal": 40003,
+      "mismatched": 0
+    }
+  },
+  "examples": []
+}
