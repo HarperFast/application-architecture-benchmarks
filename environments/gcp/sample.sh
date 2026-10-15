@@ -9,7 +9,7 @@
 #
 # Runs as a system service, so it stays on the housekeeping CPUs. Every row carries a wall-clock
 # epoch in milliseconds; per-step figures come from joining these rows to each step's start and
-# end time in the run record (a gap today, see ecommerce-store-gaps.md).
+# end time in the run record (ecommerce-store's bench/cycles.mjs does this for perf.csv).
 #
 # Output:
 #   perf.csv          cycles, instructions, task-clock per 250 ms for each bench slice

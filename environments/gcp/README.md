@@ -11,7 +11,7 @@ How to run a [stack comparison](../../README.md#stack-comparisons) on a dedicate
 | [`probe-clock.sh`](probe-clock.sh) | VM, as root | Proves cycles are countable and measures how steady the clock is |
 | [`sample.sh`](sample.sh) | VM, as root, whole session | Cycles per target every 250 ms; CPU, memory, steal, and maintenance events every second |
 | [`conditions.sh`](conditions.sh) | VM, as root | Raw snapshot of host run conditions |
-| [`ecommerce-store-gaps.md`](ecommerce-store-gaps.md) | | What the Harper reference harness needs before its first tier-2 run |
+| [`ecommerce-store-gaps.md`](ecommerce-store-gaps.md) | | What the Harper reference harness needed for tier 2, what closed it, and what is still open |
 | [`qualification/`](qualification) | | Raw probe output and instance settings from each qualification session |
 
 ## The clock on GCP
@@ -105,10 +105,12 @@ Estimated cost per session. Google's Cloud Billing Catalog, read 2026-10-14, pri
 | Session | Duration | Cost |
 |-|-|-|
 | Clock qualification only (2026-10-14: 24 min including re-runs) | ~30 min | < $1 ($0.39 measured) |
-| One target, three trials (shakedown) | ~1.5 h | ~$1.50 |
-| Two targets, five interleaved trials each | ~3–4 h | ~$4 |
+| One target, three trials (shakedown) | ~2.5 h | ~$2.50 |
+| Two targets, five interleaved trials each | ~6 h | ~$6 |
 | Forgotten VM, capped by the deadline | 8 h | ~$8 |
 | Bare-metal verification session | ~4 h | ~$80 |
+
+Trial sessions assume ecommerce-store's harness: about 30 minutes per trial, 20 of them the fixed `bench` warm-up, plus about 20 minutes of seeding per target and 20 of setup. Two targets at five trials each leave about two hours before the self-delete deadline. More targets or trials need fewer of the other, or a longer deadline (`MAX_RUN`, read by `vm.sh up`), since every target has to run in one session.
 
 Disk, the external IPv4 address, and egress are each well under a cent an hour; results are tens of megabytes and the dataset pull is ingress. In the Cloud NAT fallback, NAT adds its gateway charge and per-gigabyte data processing on the few gigabytes of packages, images, and dataset a session pulls: cents per session.
 
@@ -186,12 +188,13 @@ Repositories are public and checked out at pinned commits, so the VM holds no cr
 ```bash
 git clone https://github.com/HarperFast/ecommerce-store /mnt/lssd/src/ecommerce-store
 cd /mnt/lssd/src/ecommerce-store && git checkout <commit> && git lfs install --local && git lfs pull
+npm install --ignore-scripts --no-audit --no-fund   # the harness and verify-run-record.mjs import @ecommerce-store/spec from the workspace
 node scripts/prepare-dataset.mjs --scale bench   # expands ~4.3 GB and verifies every table's SHA-256 against MANIFEST.json
 git clone https://github.com/HarperFast/application-architecture-benchmarks /mnt/lssd/src/application-architecture-benchmarks
 git -C /mnt/lssd/src/application-architecture-benchmarks checkout <commit>
 ```
 
-One expanded, verified copy of the dataset serves every target in the session. The LFS pull is about 320 MB and counts against the organization's LFS bandwidth.
+One expanded, verified copy of the dataset serves every target in the session. The LFS pull is about 320 MB and counts against the organization's LFS bandwidth. The workspace install is `npm install`, not `npm ci`: the lock file's optional platform packages differ across platforms. ecommerce-store's orchestrator stops early without it.
 
 Snapshots are made on the tier-2 host, per session. A tier-1 snapshot is never reused here: tier 1 runs arm64 containers on macOS, and the C4 host is x86-64. Snapshots are not reused across sessions either: every session re-seeds every target, which costs about 20 minutes and $0.35 per target and removes any question of where a snapshot came from.
 
@@ -199,14 +202,15 @@ Snapshots are made on the tier-2 host, per session. A tier-1 snapshot is never r
 
 For each target: build, seed, snapshot, stop. Not measured. Then record the session's conditions and start the sampler, which runs until the last trial ends.
 
-For the Harper reference implementation, once [gap 1](ecommerce-store-gaps.md#1-no-way-to-place-the-target-in-the-target-slice) is closed (`COMPOSE_EXTRA` is the suggested name, not an existing option):
+For the Harper reference implementation:
 
 ```bash
 cd /mnt/lssd/src/ecommerce-store
 cp containers/.env.example containers/.env   # set HDB_ADMIN_PASSWORD to a new random value: a test credential that never leaves this VM
-SCALE=bench TRIALS=0 COMPOSE_EXTRA=compose.tier2.yaml ./containers/run-benchmark.sh   # build, seed, snapshot; TRIALS=0 measures nothing
-docker compose -p harper-ecommerce-bench stop
+SCALE=bench TIER=2 TRIALS=0 COMPOSE_EXTRA=compose.tier2.yaml ./containers/run-benchmark.sh   # build, seed, snapshot; TRIALS=0 measures nothing
 ```
+
+`SCALE=bench` is refused without `TIER=2`. `compose.tier2.yaml` places Harper in `bench-target.slice` and the generator in `bench-generator.slice`, and keeps Harper's 2 GiB container limit, which Harper sizes its heaps and block cache from. The snapshot gets a provenance record, and the orchestrator stops the target when it exits.
 
 Then, once for the session:
 
@@ -224,9 +228,17 @@ Targets are interleaved and the order alternates (A B, B A, A B, …), so drift 
 3. Drop the page cache: `sync; echo 3 | sudo tee /proc/sys/vm/drop_caches`. "Cold" then means cold for every target, and no target reads pages charged outside its budget.
 4. Cold start, warm-up, ladder, through the target's orchestrator.
 5. `sudo bash ~/conditions.sh $S/trial-<n>-<target>` for container state and image digests.
-6. Validate the run record (for ecommerce-store, `scripts/verify-run-record.mjs`), and check `samples/maintenance.log` and, once the [join](#known-gaps) exists, each step's effective frequency. A trial that fails any of them is re-run in the same session, and the failure is kept.
+6. Join the trial's cycles from `$S/samples` into its run record and validate the record (for ecommerce-store, `bench/cycles.mjs` and `scripts/verify-run-record.mjs`), check `samples/maintenance.log`, and compare the trial's effective frequency with the session median ([drift threshold](#the-clock-on-gcp)). A trial that fails any of them is re-run in the same session, and the failure is kept.
 
-For the Harper reference implementation, steps 2 to 4 are one call, `SCALE=bench SKIP_LOAD=1 TRIALS=1 COMPOSE_EXTRA=compose.tier2.yaml ./containers/run-benchmark.sh`, and step 3 has to happen inside it, between the stop and the start of the measured restart ([gap 3](ecommerce-store-gaps.md#3-cold-start-runs-on-a-warm-page-cache-and-inside-the-targets-budget)). Follow it with `docker compose -p harper-ecommerce-bench stop`.
+For the Harper reference implementation, steps 2 to 4 and the join and validation in step 6 are one call:
+
+```bash
+cd /mnt/lssd/src/ecommerce-store
+SCALE=bench TIER=2 SKIP_LOAD=1 TRIALS=1 COMPOSE_EXTRA=compose.tier2.yaml SAMPLES_DIR=$S/samples CONDITIONS_DIR=$S/conditions \
+  PRE_START_HOOK='sync; echo 3 | sudo tee /proc/sys/vm/drop_caches >/dev/null' ./containers/run-benchmark.sh
+```
+
+It refuses a snapshot whose provenance does not match, stops the target, and restores the snapshot. Then it runs `PRE_START_HOOK` (step 3) and starts the target, probing it from the host every 25 ms. The warm-up is 120,000 requests at 100 rps, about 20 minutes, and the ladder runs 60 s steps with seeded Poisson arrivals, so a trial takes about 30 minutes. It then joins cycles from `SAMPLES_DIR`, runs `verify-run-record.mjs`, and stops the target on exit. It exits 1 if the trial failed verification, and the record is kept. `CONDITIONS_DIR` is recorded as a path, so keep it inside `$S`. To measure another build of the reference in the same session, such as the quote-batching A/B, add `TARGET_REF=<commit>`. That builds the commit's application code against the same snapshot, as a further target in the interleaving. The session-median comparison spans trials and targets, so it is the operator's until a [comparison-level orchestrator](#known-gaps) exists; `verify-run-record.mjs` prints each trial's median, minimum, and maximum effective frequency.
 
 ### 6. Collect and tear down
 
@@ -306,9 +318,9 @@ The session changed one script. The probe's busy-everything phase now also loads
 ## Known gaps
 
 - **Untested:** the Cloud NAT path, bare metal, a live migration during a session, and any real target.
-- **No join yet.** Nothing turns `sample.sh` output and a run record into per-step gigacycles, effective frequency, and per-component CPU. It needs absolute step times in the run record first, then a small script, which belongs with the shared harness. The qualification's one-off join of a synthetic load shows the data supports it.
-- **No comparison-level orchestrator.** Interleaving targets, restoring, dropping caches, and stopping the other target is a loop that belongs in the comparison's directory once a second target exists. Until then it is the steps under [trials](#5-trials).
-- **The Harper reference harness** needs placement, accounting, and lifecycle changes before its first tier-2 run. Placement is blocking: without it, the target lands in `system.slice` on the housekeeping CPUs. See [`ecommerce-store-gaps.md`](ecommerce-store-gaps.md).
+- **The cycle join lives in ecommerce-store.** Its [`bench/cycles.mjs`](https://github.com/HarperFast/ecommerce-store/blob/f47978bfc956f859aa2a0bc417a77ea50e12b25e/bench/cycles.mjs) joins `sample.sh`'s per-slice cycles to each step of a run record: gigacycles, effective frequency, IPC, and ops per gigacycle. Per-component CPU comes from each container's cgroup in the same record. Another harness can use the join if its record carries each step's wall-clock start and drain end (`startedAtEpochMs`, `drainEndEpochMs`) and success count (`ok`). It is tested against the qualification's per-CPU probe output and a synthetic per-cgroup layout, not yet against a real `sample.sh` capture.
+- **No comparison-level orchestrator.** Interleaving targets, restoring, dropping caches, stopping the other target, and comparing each trial's effective frequency with the session median is a loop that belongs in the comparison's directory once a second target exists. Until then it is the steps under [trials](#5-trials).
+- **The Harper reference harness** closed every blocking gap in [ecommerce-store `f47978b`](https://github.com/HarperFast/ecommerce-store/commit/f47978bfc956f859aa2a0bc417a77ea50e12b25e): slice placement, CPU from cgroups, a page-cache drop and an outside probe for the cold start, snapshot provenance, verification after every trial, and the cycle join. Still open: Harper's heap and block cache are sized from its container limit rather than configured, and there is no ground-truth guard. See [`ecommerce-store-gaps.md`](ecommerce-store-gaps.md).
 
 ## Decisions
 
