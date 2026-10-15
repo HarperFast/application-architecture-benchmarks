@@ -10,7 +10,7 @@ What is tested and what is not is listed at the end. Nothing in the tier-2 path 
 
 | Input | Value |
 |-|-|
-| ecommerce-store | `harper-5.3` at `f7a688b` (until it merges; then the merge commit on `main`), dataset generator 0.5.0 |
+| ecommerce-store | `main` at `f47978b` (where #4 merged), dataset generator 0.5.0 |
 | application-architecture-benchmarks | the commit of this runbook on `fastify-postgres-redis` (PR #6) |
 | Machine | `c4-standard-16-lssd`, ALL_CORE_MAX, PMU, SMT off (`environments/gcp` "Instance") |
 | Ladder | `25,50,100,200,400,800,1600` rps, 60 s steps; 50% quotes, 20 writes/s |
@@ -28,7 +28,7 @@ What is tested and what is not is listed at the end. Nothing in the tier-2 path 
 `environments/gcp/README.md` step 3 checks out ecommerce-store at the pinned commit, pulls its LFS objects, and expands and verifies the `bench` dataset (`scripts/prepare-dataset.mjs --scale bench`, about 4.3 GB under `.work/dataset/bench`). Two additions:
 
 ```bash
-cd /mnt/lssd/src/ecommerce-store && npm ci --ignore-scripts          # the harness and verify-run-record import @ecommerce-store/spec from the workspace
+cd /mnt/lssd/src/ecommerce-store && npm install --ignore-scripts --no-audit --no-fund   # the harness and verify-run-record import @ecommerce-store/spec from the workspace; run.sh stops early without it
 git -C /mnt/lssd/src/application-architecture-benchmarks checkout <commit of this runbook>
 ```
 
@@ -87,7 +87,7 @@ The VM deletes itself 8 h after boot (`vm.sh`, `MAX_RUN`). A trial takes about 3
 | Phase | Time |
 |-|-|
 | Provision, host setup, clock probe (steps 1-2) | about 30 min |
-| Code and data, `npm ci` (step 2) | about 15 min |
+| Code and data, the workspace install (step 2) | about 15 min |
 | Seeding `fpr` and `harper` (step 4) | about 40 min |
 | Collection and teardown, with margin (step 7) | keep 1 h |
 
@@ -127,7 +127,9 @@ Each `fpr` container has its own memory limit, and every process is sized from t
 | postgres | 1,280 MiB | `shared_buffers` 320 MB, `effective_cache_size` 960 MB, `work_mem` 4 MB, `maintenance_work_mem` 64 MB (256 MB while loading) |
 | redis | 256 MiB | `maxmemory` 153 MB, `allkeys-lru` |
 
-`MEMORY_SPLIT=slice` removes the per-container memory limits (each container may use the slice's 2 GiB) while keeping the same process sizing; it is a sensitivity, not the default. See [findings.md](findings.md#tier-2-readiness) on DATA-004's memory test under a per-container split.
+`MEMORY_SPLIT=slice` removes the per-container memory limits (each container may use the slice's 2 GiB) while keeping the same process sizing; it is a sensitivity, not the default.
+
+On `bench`, `verify-run-record.mjs` judges DATA-004's memory evidence per cgroup: each container against its own limit, and the summed peaks against the 2 GiB budget. One of them must be pressed (`memory.peak` at 90% of its limit or more) and still reading (at least 1 MiB of disk reads or a refault in every measured step). Each trial's verdict line in `results/raw/trials.log` carries the `DATA-004 memory basis:` that met it; for this stack it should be Postgres against its 1,280 MiB.
 
 ## Not yet tested
 
@@ -141,4 +143,4 @@ Untested until the first session:
 - The cycle join against real `perf stat --for-each-cgroup -x,` output: the qualification recorded per-CPU CSV and a human-readable cgroup-mode summary, not cgroup-mode CSV, so that layout is inferred from perf's documentation.
 - Running the join in the generator container against a per-trial sample directory owned by root.
 - Loading `bench` into Postgres, its time and disk, and the uncompressed snapshot's restore time.
-- DATA-004's memory test against `fpr` on `bench`.
+- DATA-004's memory evidence for either target on `bench`.

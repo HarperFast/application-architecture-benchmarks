@@ -83,7 +83,9 @@ setup() {
 	local override="${ECOMMERCE_STORE_DIR:-}"
 	set -a; . ./.env; set +a
 	if [ -n "$override" ]; then export ECOMMERCE_STORE_DIR="$override"; fi
-	[ -f "$ECOMMERCE_STORE_DIR/bench/cgroups.mjs" ] || { echo "$ECOMMERCE_STORE_DIR predates the cgroup-accounting harness (harper-5.3); point ECOMMERCE_STORE_DIR at a checkout that has it" >&2; exit 1; }
+	[ -f "$ECOMMERCE_STORE_DIR/bench/cycles.mjs" ] || { echo "$ECOMMERCE_STORE_DIR predates ecommerce-store #4's harness (main from f47978b); point ECOMMERCE_STORE_DIR at a checkout that has it" >&2; exit 1; }
+	# The harness and verify-run-record import @ecommerce-store/spec from the checkout's workspace.
+	[ -e "$ECOMMERCE_STORE_DIR/node_modules/@ecommerce-store/spec" ] || { echo "the ecommerce-store workspace is not installed: run npm install --ignore-scripts --no-audit --no-fund in $ECOMMERCE_STORE_DIR" >&2; exit 1; }
 	export SCALE="${SCALE:-dev}"
 	case "$SCALE" in
 		dev) ;;
@@ -213,20 +215,22 @@ volume_of() { if [ "$1" = fpr ]; then echo "${PROJECT}_pg-data"; else echo "${PR
 all_targets() { echo "fpr harper"; }
 
 # The build of the reference a trial runs, through ecommerce-store's own build variables
-# (containers/compose.yaml: TARGET_CONTEXT, TARGET_DOCKERFILE, TARGET_IMAGE_TAG; run-benchmark.sh
-# sets them from TARGET_REF the same way). harper is the checkout. harper-unbatched is the commit
+# (containers/compose.yaml: TARGET_IMAGE, TARGET_IMAGE_TAG, TARGET_CONTEXT, TARGET_DOCKERFILE;
+# run-benchmark.sh sets them from TARGET_REF the same way). TARGET_IMAGE gives this project's
+# images their own name: image names are global to the host, so a build here never replaces the
+# image ecommerce-store's own orchestrator uses on the same machine. harper is the checkout. harper-unbatched is the commit
 # HARPER_UNBATCHED_REF names (default dd3a5f5^, the build before quote batching), extracted with
 # git archive into .targets/ here and built with the checkout's Dockerfile, so the two builds
 # differ only in application code and both images stay built. It restores harper's snapshot, so
 # its schema must be the checkout's.
 select_variant() {
-	export TARGET_DOCKERFILE="$ECOMMERCE_STORE_DIR/containers/Dockerfile"
+	export TARGET_IMAGE=aab-harper-reference TARGET_DOCKERFILE="$ECOMMERCE_STORE_DIR/containers/Dockerfile"
 	if [ "$1" != harper-unbatched ]; then
 		export TARGET_CONTEXT="$ECOMMERCE_STORE_DIR" TARGET_IMAGE_TAG=checkout TARGET_COMMIT="$(git -C "$ECOMMERCE_STORE_DIR" rev-parse HEAD)"
 		return
 	fi
 	grep -q 'TARGET_IMAGE_TAG' "$ECOMMERCE_STORE_DIR/containers/compose.yaml" \
-		|| { echo "harper-unbatched needs an ecommerce-store checkout whose compose builds from TARGET_CONTEXT (harper-5.3 after 9306a04)" >&2; exit 1; }
+		|| { echo "harper-unbatched needs an ecommerce-store checkout whose compose builds from TARGET_CONTEXT (main from f47978b)" >&2; exit 1; }
 	local ref="${HARPER_UNBATCHED_REF:-dd3a5f5^}" commit
 	commit="$(git -C "$ECOMMERCE_STORE_DIR" rev-parse --verify --quiet "${ref}^{commit}")" || { echo "HARPER_UNBATCHED_REF $ref is not a commit in $ECOMMERCE_STORE_DIR" >&2; exit 1; }
 	git -C "$ECOMMERCE_STORE_DIR" diff --quiet "$commit" HEAD -- schemas \
@@ -394,6 +398,7 @@ conditions_json() {
 				applied: { memoryBytes: +appliedMemory, cgroupParent: distinctParents.join(",") || null },
 				baseImages: fpr ? { postgres: pinned.postgres, redis: pinned.redis, node: pinned.node } : { "node:24": pinned.harperNode, "node:24-slim": pinned.harperNodeSlim },
 				build: fpr ? null : { commit: targetCommit, imageTag: env.TARGET_IMAGE_TAG, source: target === "harper-unbatched" ? "git archive of " + (env.HARPER_UNBATCHED_REF || "dd3a5f5^") : "checkout" },
+				image: fpr ? null : { name: env.TARGET_IMAGE, tag: env.TARGET_IMAGE_TAG },
 			},
 			generator: { image: pinned.generator, cpus: env.BENCH_CPUS || (env.TIER === "2" ? "4" : "2"), memory: env.BENCH_MEMORY || (env.TIER === "2" ? "3g" : "1g") },
 			snapshot: { file: snapshot, datasetGenerator: env.DATASET_GENERATOR, compressed: env.SNAPSHOT_COMPRESS === "1" },
@@ -504,7 +509,7 @@ bench() {
 			--out /results --cold-ms "$COLD_MS" ${BENCH_ARGS:-} | tee "$RAW/console-$target-$stamp.txt" || true
 		if [ -n "$host_sampler" ]; then kill "$host_sampler" 2>/dev/null || true; fi
 		local record; record="$(grep -oE 'run-[0-9TZ-]+\.json' "$RAW/console-$target-$stamp.txt" | tail -1 || true)"
-		local verdict=ok
+		local verdict=ok basis=""
 		fault() { if [ "$verdict" = ok ]; then verdict="$1"; else verdict="$verdict; $1"; fi; }
 		# Tier 2: ecommerce-store's cycle join (bench/cycles.mjs) adds gigacycles, effective clock and
 		# ops per gigacycle to every step of the record, as its own orchestrator does with SAMPLES_DIR.
@@ -523,6 +528,9 @@ bench() {
 			# The reference's run-level checks (on dev, DATA-004 is expected to fail; --dev says so).
 			(cd "$ECOMMERCE_STORE_DIR" && node scripts/verify-run-record.mjs $([ "$SCALE" = dev ] && echo --dev) "$RAW/$record") > "$RAW/verify-$target-$stamp.txt" 2>&1 \
 				|| fault "verification failed"
+			# Which cgroup and limit DATA-004's memory evidence rested on, or that none met it.
+			basis="$(grep -m1 -o 'DATA-004 memory basis: .*' "$RAW/verify-$target-$stamp.txt" || echo 'DATA-004 memory basis: not printed')"
+			echo "$basis" | tee -a "$RAW/console-$target-$stamp.txt" >&2
 			# A live migration or pending maintenance during the trial voids it (environments/gcp).
 			if [ -n "$samples" ] && grep -qE ',(MIGRATE|TERMINATE)' "$samples/maintenance.log" 2>/dev/null; then
 				fault "host maintenance event"
@@ -537,6 +545,7 @@ bench() {
 		stop_target "$target"
 		say "trial $target $stamp: $verdict"
 		echo "trial: $target $stamp record=${record:-none} verdict=$verdict" | tee -a "$RAW/trials.log"
+		echo "  $target $stamp ${basis:-DATA-004 memory basis: no record}" >> "$RAW/trials.log"
 		trial=$((trial + 1))
 	done
 }

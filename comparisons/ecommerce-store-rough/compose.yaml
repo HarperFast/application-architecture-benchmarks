@@ -23,10 +23,6 @@ services:
     extends:
       file: ${ECOMMERCE_STORE_DIR:?run scripts/run.sh setup}/containers/compose.yaml
       service: harper
-    # This project's own image name, tagged per build as ecommerce-store tags its own
-    # (TARGET_IMAGE_TAG: `checkout`, or the commit of another build), so a build here never
-    # replaces the image ecommerce-store's own orchestrator uses on the same machine.
-    image: aab-harper-reference:${TARGET_IMAGE_TAG:-checkout}
     # Published for conformance and diff runs from the host only; the measured generator uses
     # the bridge. Distinct from the 9925/9926 another project on this machine already uses.
     ports: !override
