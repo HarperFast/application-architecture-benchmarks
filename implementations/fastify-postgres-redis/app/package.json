@@ -1,0 +1,23 @@
+{
+  "name": "@aab/ecommerce-store-fastify-postgres-redis",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The ecommerce-store application (SPEC.md 0.2.0-draft) on Fastify + PostgreSQL + Redis.",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "load": "node src/load-dataset.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "fast-json-stringify": "7.1.0",
+    "fastify": "5.12.5",
+    "pg": "8.23.1",
+    "pg-copy-streams": "7.0.0",
+    "redis": "6.3.0"
+  }
+}

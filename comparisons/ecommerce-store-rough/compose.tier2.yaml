@@ -1,0 +1,59 @@
+# Tier-2 placement, layered over compose.yaml by `TIER=2 scripts/run.sh` (environments/gcp,
+# "What a target must provide"). The same mechanism as ecommerce-store's containers/compose.tier2.yaml.
+#
+# environments/gcp/host-setup.sh partitions the host's cores with systemd slices: the target's
+# whole budget is bench-target.slice (cores 2-3, MemoryMax 2G, no swap), the generator's is
+# bench-generator.slice (cores 4-7), and anything left unplaced lands in system.slice on the
+# housekeeping cores 0-1. With Docker's systemd cgroup driver a parent is named as a slice unit
+# and the dash nests it: bench-target.slice is bench.slice/bench-target.slice.
+#
+# Every process of every target joins the target slice, so the kernel enforces one cpuset and
+# one memory limit over the whole stack: Harper's one container, or all three of Fastify,
+# Postgres and Redis. Only one target runs at a time; run.sh stops each at the end of its trial.
+#
+# Every target container keeps its memory limit and loses its CPU quota, as in ecommerce-store's
+# override. Memory: a container cannot see its slice's limits, so each process is sized from its
+# own container's limit (the implementation's split, or Harper's 2 GiB). CPU: the slice's cpuset
+# is the budget; a quota on top adds CFS throttling the tier-2 procedure discourages. `!reset`
+# needs Compose 2.24 or later, which host-setup.sh installs.
+#
+# Seeding is not measured. The loaders run with the generator; the databases they write to stay
+# in the target slice, so a seed runs under the same placement the target is measured under.
+services:
+  postgres:
+    cgroup_parent: bench-target.slice
+    deploy:
+      resources:
+        limits:
+          cpus: !reset null
+  redis:
+    cgroup_parent: bench-target.slice
+    deploy:
+      resources:
+        limits:
+          cpus: !reset null
+  app:
+    cgroup_parent: bench-target.slice
+    deploy:
+      resources:
+        limits:
+          cpus: !reset null
+  harper:
+    cgroup_parent: bench-target.slice
+    deploy:
+      resources:
+        limits:
+          cpus: !reset null
+  bench:
+    cgroup_parent: bench-generator.slice
+    deploy:
+      resources:
+        limits:
+          # The slice is the generator's budget (4 cores, 4 GiB). The same for every target in a
+          # session; at 1 GiB the generator was OOM-killed at 8,000 rps on tier 1.
+          cpus: "${BENCH_CPUS:-4}"
+          memory: "${BENCH_MEMORY:-3g}"
+  loader:
+    cgroup_parent: bench-generator.slice
+  harper-loader:
+    cgroup_parent: bench-generator.slice

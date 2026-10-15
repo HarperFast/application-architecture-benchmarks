@@ -1,0 +1,284 @@
+{
+  "target": "fpr",
+  "suite": {
+    "repo": "ecommerce-store",
+    "path": "e2e/",
+    "commit": "f47978bfc956f859aa2a0bc417a77ea50e12b25e",
+    "playwright": "1.63.0"
+  },
+  "ranAt": "2026-10-15T20:26:00.314Z",
+  "passed": 24,
+  "failed": 0,
+  "skipped": 0,
+  "requirements": {
+    "CACHE-001": "pass",
+    "CACHE-002": "pass",
+    "CACHE-003": "pass",
+    "DATA-002": "pass",
+    "OBS-001": "pass",
+    "OBS-002": "pass",
+    "OBS-003": "pass",
+    "PDP-001": "pass",
+    "PDP-002": "pass",
+    "PDP-003": "pass",
+    "PDP-004": "pass",
+    "PDP-005": "pass",
+    "QUOTE-001": "pass",
+    "QUOTE-002": "pass",
+    "QUOTE-003": "pass",
+    "QUOTE-004": "pass",
+    "QUOTE-005": "pass",
+    "QUOTE-006": "pass",
+    "QUOTE-007": "pass",
+    "QUOTE-008": "pass",
+    "QUOTE-009": "pass",
+    "QUOTE-010": "pass",
+    "QUOTE-011": "pass",
+    "QUOTE-012": "pass",
+    "WRITE-002": "pass"
+  },
+  "tests": [
+    {
+      "file": "cache.api.spec.ts",
+      "title": "[CACHE-001] a cached response is byte-identical to the one that filled it",
+      "requirements": [
+        "CACHE-001"
+      ],
+      "status": "passed",
+      "durationMs": 71,
+      "error": null
+    },
+    {
+      "file": "cache.api.spec.ts",
+      "title": "[CACHE-003] a value cached for one tier is never served to another",
+      "requirements": [
+        "CACHE-003"
+      ],
+      "status": "passed",
+      "durationMs": 113,
+      "error": null
+    },
+    {
+      "file": "cache.api.spec.ts",
+      "title": "[CACHE-002 OBS-002] a write invalidates the cache, and status is reported",
+      "requirements": [
+        "CACHE-002",
+        "OBS-002"
+      ],
+      "status": "passed",
+      "durationMs": 86,
+      "error": null
+    },
+    {
+      "file": "cache.api.spec.ts",
+      "title": "[OBS-001 OBS-003] Server-Timing decomposes data access, compute and total, on a miss and a hit",
+      "requirements": [
+        "OBS-001",
+        "OBS-003"
+      ],
+      "status": "passed",
+      "durationMs": 110,
+      "error": null
+    },
+    {
+      "file": "platform.api.spec.ts",
+      "title": "[WRITE-002] a committed write reaches quote pricing within FRESH_MS",
+      "requirements": [
+        "WRITE-002"
+      ],
+      "status": "passed",
+      "durationMs": 109,
+      "error": null
+    },
+    {
+      "file": "platform.api.spec.ts",
+      "title": "[OBS-001] the quote endpoint decomposes data access and compute",
+      "requirements": [
+        "OBS-001"
+      ],
+      "status": "passed",
+      "durationMs": 90,
+      "error": null
+    },
+    {
+      "file": "platform.api.spec.ts",
+      "title": "[QUOTE-004] tier is applied to pricing and the loyalty balance is carried",
+      "requirements": [
+        "QUOTE-004"
+      ],
+      "status": "passed",
+      "durationMs": 721,
+      "error": null
+    },
+    {
+      "file": "product.api.spec.ts",
+      "title": "[PDP-002] tier and region vary the response and are part of any cache key",
+      "requirements": [
+        "PDP-002"
+      ],
+      "status": "passed",
+      "durationMs": 18,
+      "error": null
+    },
+    {
+      "file": "product.api.spec.ts",
+      "title": "[PDP-003] a write is visible on the aggregate within FRESH_MS",
+      "requirements": [
+        "PDP-003"
+      ],
+      "status": "passed",
+      "durationMs": 36,
+      "error": null
+    },
+    {
+      "file": "product.api.spec.ts",
+      "title": "[PDP-004] an unknown product id returns 404",
+      "requirements": [
+        "PDP-004"
+      ],
+      "status": "passed",
+      "durationMs": 13,
+      "error": null
+    },
+    {
+      "file": "product.api.spec.ts",
+      "title": "[PDP-001] aggregates product, variants, inventory, price, rollup and related",
+      "requirements": [
+        "PDP-001"
+      ],
+      "status": "passed",
+      "durationMs": 13,
+      "error": null
+    },
+    {
+      "file": "product.api.spec.ts",
+      "title": "[PDP-005] related items carry enough detail to render",
+      "requirements": [
+        "PDP-005"
+      ],
+      "status": "passed",
+      "durationMs": 16,
+      "error": null
+    },
+    {
+      "file": "quote.api.spec.ts",
+      "title": "[QUOTE-001] two carts with identical contents are priced independently",
+      "requirements": [
+        "QUOTE-001"
+      ],
+      "status": "passed",
+      "durationMs": 336,
+      "error": null
+    },
+    {
+      "file": "quote.api.spec.ts",
+      "title": "[QUOTE-003] availability is resolved per line and never exceeds what was asked for",
+      "requirements": [
+        "QUOTE-003"
+      ],
+      "status": "passed",
+      "durationMs": 545,
+      "error": null
+    },
+    {
+      "file": "quote.api.spec.ts",
+      "title": "[QUOTE-005] all four promotion kinds are exercised and every applied promotion is eligible",
+      "requirements": [
+        "QUOTE-005"
+      ],
+      "status": "passed",
+      "durationMs": 619,
+      "error": null
+    },
+    {
+      "file": "quote.api.spec.ts",
+      "title": "[QUOTE-006] shipping resolves by region and total cart weight",
+      "requirements": [
+        "QUOTE-006"
+      ],
+      "status": "passed",
+      "durationMs": 850,
+      "error": null
+    },
+    {
+      "file": "quote.api.spec.ts",
+      "title": "[QUOTE-007] tax applies to the post-discount subtotal, at one rate per jurisdiction",
+      "requirements": [
+        "QUOTE-007"
+      ],
+      "status": "passed",
+      "durationMs": 893,
+      "error": null
+    },
+    {
+      "file": "quote.api.spec.ts",
+      "title": "[DATA-002] every monetary field is an integer in minor units",
+      "requirements": [
+        "DATA-002"
+      ],
+      "status": "passed",
+      "durationMs": 322,
+      "error": null
+    },
+    {
+      "file": "quote.api.spec.ts",
+      "title": "[QUOTE-002] every line resolves to a priced product and variant",
+      "requirements": [
+        "QUOTE-002"
+      ],
+      "status": "passed",
+      "durationMs": 202,
+      "error": null
+    },
+    {
+      "file": "quote.api.spec.ts",
+      "title": "[QUOTE-011] discounts stay within the normative 60% cap, across many carts",
+      "requirements": [
+        "QUOTE-011"
+      ],
+      "status": "passed",
+      "durationMs": 181,
+      "error": null
+    },
+    {
+      "file": "quote.api.spec.ts",
+      "title": "[QUOTE-012] every cited promotion reduced the line that cites it",
+      "requirements": [
+        "QUOTE-012"
+      ],
+      "status": "passed",
+      "durationMs": 152,
+      "error": null
+    },
+    {
+      "file": "quote.api.spec.ts",
+      "title": "[QUOTE-008] the same cart and dataset state produce a byte-identical quote",
+      "requirements": [
+        "QUOTE-008"
+      ],
+      "status": "passed",
+      "durationMs": 10,
+      "error": null
+    },
+    {
+      "file": "quote.api.spec.ts",
+      "title": "[QUOTE-009] an unknown cart id returns 404",
+      "requirements": [
+        "QUOTE-009"
+      ],
+      "status": "passed",
+      "durationMs": 6,
+      "error": null
+    },
+    {
+      "file": "quote.api.spec.ts",
+      "title": "[QUOTE-010] the response itemizes per line and at cart level",
+      "requirements": [
+        "QUOTE-010"
+      ],
+      "status": "passed",
+      "durationMs": 27,
+      "error": null
+    }
+  ]
+}
