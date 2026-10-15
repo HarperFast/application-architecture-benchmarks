@@ -6,17 +6,21 @@
  * multi-container target on a shared machine needs, this adds:
  *
  *   - the generator container's own CPU (the harness reports only its Node process);
- *   - every OTHER container's CPU, including containers that start and exit inside a step
- *     (machine.slice keeps their usage), and the VM's own services (the podman service, image
- *     builds): contention, flagged per step;
+ *   - every OTHER container's CPU, including containers that start and exit inside a step:
+ *     contention, flagged per step. Tier 1 (a Podman machine): every libpod scope outside the
+ *     target and the generator, and the VM's own services. Tier 2 (environments/gcp): any scope
+ *     in bench-target.slice that is not the target's, any other scope in bench-generator.slice,
+ *     and containers misplaced in system.slice;
  *   - machine-wide CPU from /proc/stat, so the CPU no cgroup was charged for (kernel network
- *     processing between containers, hypervisor interrupts) is visible per step;
- *   - per-container throttling for the target, which the harness also reports, kept here so a
- *     summary is self-contained.
+ *     processing between containers, interrupts) is visible per step;
+ *   - per-container throttling for the target, which the harness also reports;
+ *   - for a target that serves STATS_URL (fastify-postgres-redis' /__stats): its cache and
+ *     buffer counters per step: entity and aggregate cache hit rates, Redis keyspace hits,
+ *     misses and evictions, Postgres shared-buffer hits and reads.
  *
- * Counters are sampled every SAMPLE_MS and joined to the harness's step epochs
- * (startedAtEpochMs to drainEndEpochMs, the window the harness accounts target CPU over) by
- * linear interpolation.
+ * Counters are sampled every SAMPLE_MS (STATS_URL every STATS_MS) and joined to the harness's
+ * step epochs (startedAtEpochMs to drainEndEpochMs, the window the harness accounts target CPU
+ * over) by linear interpolation.
  *
  * Runs inside the generator container, outside the target's budget, with the machine's cgroup
  * tree mounted read-only at CGROUP_ROOT (/host-cgroup, the harness's default).
@@ -25,7 +29,8 @@
  *     node /cmp/bench-wrapper.mjs -- --url http://app:3000 --rates 100,200 --target-cgroups app=<id>,...
  *
  * Environment: CGROUPS (name -> cgroup path), BUDGET_CGROUP (optional shared slice), TARGET,
- * CONDITIONS (path to the run conditions JSON written by run.sh; merged into the summary).
+ * CONDITIONS (path to the run conditions JSON written by run.sh; merged into the summary),
+ * STATS_URL (optional).
  */
 import { spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
@@ -35,6 +40,12 @@ import { join, basename } from 'node:path';
 
 const ROOT = process.env.CGROUP_ROOT ?? '/host-cgroup';
 const SAMPLE_MS = 200;
+const STATS_MS = 2000;
+const STATS_URL = process.env.STATS_URL || null;
+/** Tier 2 (environments/gcp/host-setup.sh) when its slices exist; a Podman machine otherwise. */
+const TARGET_SLICE = '/bench.slice/bench-target.slice';
+const GENERATOR_SLICE = '/bench.slice/bench-generator.slice';
+const SLICED = existsSync(`${ROOT}${TARGET_SLICE}/cpu.stat`);
 const groups = JSON.parse(process.env.CGROUPS ?? '{}');
 if (process.env.BUDGET_CGROUP) groups.budget = process.env.BUDGET_CGROUP;
 const target = process.env.TARGET ?? 'unknown';
@@ -72,42 +83,80 @@ function readMachine() {
 }
 
 const targetPaths = new Set(Object.values(groups));
-const selfPrefix = `libpod-${hostname()}`;
+const containerScope = /^(libpod|docker)-([0-9a-f]{12})[0-9a-f]*\.scope$/;
+// Docker and Podman both name a container's hostname after the first 12 characters of its id.
+const selfId = hostname();
 let generatorScope = null;
-/** Every other container scope (inside pod slices too): id -> usage_usec. */
+const listDir = (dir) => {
+	try {
+		return readdirSync(`${ROOT}${dir}`);
+	} catch {
+		return [];
+	}
+};
+/**
+ * Every container scope that is neither the target's nor the generator's: short id -> usage_usec.
+ * Tier 1: under /machine.slice (pod slices included). Tier 2: under the target and generator
+ * slices, where nothing else should be, and under /system.slice, where a container lands when it
+ * was not placed (it then runs on the housekeeping CPUs, outside every budget).
+ */
 function foreignUsage() {
 	const usage = {};
 	const visit = (dir, depth) => {
-		let entries = [];
-		try {
-			entries = readdirSync(`${ROOT}${dir}`);
-		} catch {
-			return;
-		}
-		for (const entry of entries) {
+		for (const entry of listDir(dir)) {
 			const path = `${dir}/${entry}`;
-			if (depth === 0 && entry.startsWith('machine-libpod_pod_') && entry.endsWith('.slice')) visit(path, 1);
-			if (!entry.startsWith('libpod-') || entry.startsWith('libpod-conmon-') || !entry.endsWith('.scope')) continue;
-			if (targetPaths.has(path)) continue;
-			if (entry.startsWith(selfPrefix)) {
+			if (depth === 0 && /^machine-libpod_pod_.*\.slice$/.test(entry)) visit(path, 1);
+			const match = containerScope.exec(entry);
+			if (!match || targetPaths.has(path)) continue;
+			if (match[2] === selfId) {
 				generatorScope = path;
 				continue;
 			}
 			const used = usageOf(path);
-			if (used !== null) usage[entry.slice(7, 19)] = used;
+			if (used !== null) usage[`${dir.split('/').at(-1)}:${match[2]}`] = used;
 		}
 	};
-	visit('/machine.slice', 0);
+	if (SLICED) {
+		visit(TARGET_SLICE, 1);
+		visit(GENERATOR_SLICE, 1);
+		visit('/system.slice', 1);
+	} else {
+		visit('/machine.slice', 0);
+	}
 	return usage;
 }
 
+/** CPU charged to each top-level cgroup; their sum against /proc/stat leaves what none was charged. */
+function topLevelUsage() {
+	const out = {};
+	for (const entry of listDir('')) {
+		const used = usageOf(`/${entry}`);
+		if (used !== null) out[entry] = used;
+	}
+	return out;
+}
+
+async function pollStats() {
+	try {
+		const response = await fetch(STATS_URL, { signal: AbortSignal.timeout(1500) });
+		if (response.ok) statsSeries.push(await response.json());
+	} catch {}
+}
+
 function sample() {
-	const snap = { epochMs: Date.now(), machine: readMachine(), foreign: foreignUsage(), groups: {} };
-	snap.allContainersUsec = usageOf('/machine.slice');
-	snap.vmServicesUsec = 0;
-	for (const entry of readdirSync(ROOT)) {
-		if (entry === 'machine.slice') continue;
-		snap.vmServicesUsec += usageOf(`/${entry}`) ?? 0;
+	const top = topLevelUsage();
+	const snap = { epochMs: Date.now(), machine: readMachine(), foreign: foreignUsage(), groups: {}, top };
+	snap.allTopLevelUsec = Object.values(top).reduce((a, b) => a + b, 0);
+	if (SLICED) {
+		// Tier 2: the target's and generator's slices hold every container that should run; the
+		// housekeeping slices hold the OS, the Docker daemon and the sampler.
+		snap.allContainersUsec = usageOf('/bench.slice');
+		snap.vmServicesUsec = snap.allTopLevelUsec - (top['bench.slice'] ?? 0);
+		snap.generatorSliceUsec = usageOf(GENERATOR_SLICE);
+		snap.targetSliceUsec = usageOf(TARGET_SLICE);
+	} else {
+		snap.allContainersUsec = usageOf('/machine.slice');
+		snap.vmServicesUsec = snap.allTopLevelUsec - (top['machine.slice'] ?? 0);
 	}
 	snap.generatorUsec = generatorScope ? usageOf(generatorScope) : null;
 	for (const [name, path] of Object.entries(groups)) {
@@ -117,6 +166,7 @@ function sample() {
 	return snap;
 }
 
+const statsSeries = [];
 for (const [name, path] of Object.entries(groups)) {
 	if (!existsSync(`${ROOT}${path}/cpu.stat`)) {
 		console.error(`cgroup for ${name} not found at ${ROOT}${path}`);
@@ -130,8 +180,11 @@ const limits = Object.fromEntries(
 	}])
 );
 
+foreignUsage(); // finds the generator's own scope before the first sample
 const series = [sample()];
 const sampler = setInterval(() => series.push(sample()), SAMPLE_MS);
+if (STATS_URL) await pollStats();
+const statsPoller = STATS_URL ? setInterval(pollStats, STATS_MS) : null;
 let runRecordPath = null;
 
 const child = spawn('node', ['/work/bench/run.mjs', ...harnessArgs], { stdio: ['ignore', 'pipe', 'inherit'], cwd: '/work' });
@@ -142,7 +195,9 @@ for await (const line of createInterface({ input: child.stdout, crlfDelay: Infin
 }
 const exitCode = await new Promise((resolve) => child.on('close', resolve));
 clearInterval(sampler);
+if (statsPoller) clearInterval(statsPoller);
 series.push(sample());
+if (STATS_URL) await pollStats();
 if (!runRecordPath || !existsSync(runRecordPath)) {
 	console.error(`harness exited ${exitCode}; no run record, no summary written`);
 	process.exit(exitCode || 1);
@@ -202,6 +257,13 @@ function accountWindow(fromMs, toMs) {
 	const vmServicesCores = cores((s) => s.vmServicesUsec);
 	const otherContainerCores = round(allContainerCores - targetCores - (generatorCores ?? 0));
 	const appeared = Object.keys(after.foreign).some((id) => before.foreign[id] === undefined);
+	// Tier 2: the target's CPUs are its slice's, so only a scope inside bench-target.slice competes
+	// for them; generator-slice and misplaced (system.slice) containers are recorded and flagged.
+	const inTargetSlice = Object.entries(foreign).filter(([id]) => id.startsWith('bench-target.slice:'));
+	const misplaced = Object.keys(after.foreign).filter((id) => id.startsWith('system.slice:'));
+	const contended = SLICED
+		? inTargetSlice.length > 0 || Object.keys(after.foreign).some((id) => id.startsWith('bench-target.slice:')) || otherContainerCores > 0.05
+		: otherContainerCores > 0.05 || foreignCores > 0.05 || vmServicesCores > 0.25 || appeared;
 	return {
 		windowSeconds: round(seconds),
 		perGroup,
@@ -213,7 +275,58 @@ function accountWindow(fromMs, toMs) {
 		machineCores: machine,
 		// What no cgroup was charged for: the VM's kernel and interrupt time outside every cgroup.
 		unchargedCores: round(machine.busy - allContainerCores - vmServicesCores),
-		contended: otherContainerCores > 0.05 || foreignCores > 0.05 || vmServicesCores > 0.25 || appeared,
+		misplacedContainers: misplaced.length ? misplaced : undefined,
+		contended,
+	};
+}
+
+/**
+ * The target's own cache and buffer counters over a window (STATS_URL), from cumulative counters
+ * polled every STATS_MS and interpolated at the window's ends. A counter that went backwards was
+ * reset (Redis evicted the stats hash, or a restart); the window then reports null for it.
+ */
+function statsWindow(fromMs, toMs) {
+	if (statsSeries.length < 2) return null;
+	const valueAt = (epochMs, pick) => {
+		let i = statsSeries.findIndex((s) => s.epochMs >= epochMs);
+		if (i === -1) return pick(statsSeries.at(-1)) ?? null;
+		if (i === 0) return pick(statsSeries[0]) ?? null;
+		const a = statsSeries[i - 1];
+		const b = statsSeries[i];
+		const va = pick(a);
+		const vb = pick(b);
+		if (va == null || vb == null) return null;
+		if (vb < va) return null;
+		return va + ((vb - va) * (epochMs - a.epochMs)) / Math.max(1, b.epochMs - a.epochMs);
+	};
+	const delta = (pick) => {
+		const a = valueAt(fromMs, pick);
+		const b = valueAt(toMs, pick);
+		return a === null || b === null || b < a ? null : Math.round(b - a);
+	};
+	const rate = (hits, misses) => (hits === null || misses === null || hits + misses === 0 ? null : round(hits / (hits + misses), 4));
+	const counts = {
+		entityHits: ['cart', 'customer', 'product', 'variant'].reduce((sum, t) => { const d = delta((s) => s.cache?.[`${t}.hit`] ?? 0); return sum === null || d === null ? null : sum + d; }, 0),
+		entityMisses: ['cart', 'customer', 'product', 'variant'].reduce((sum, t) => { const d = delta((s) => s.cache?.[`${t}.miss`] ?? 0); return sum === null || d === null ? null : sum + d; }, 0),
+		viewHits: delta((s) => s.cache?.['view.hit'] ?? 0),
+		viewMisses: delta((s) => s.cache?.['view.miss'] ?? 0),
+		redisKeyspaceHits: delta((s) => s.redis?.keyspaceHits),
+		redisKeyspaceMisses: delta((s) => s.redis?.keyspaceMisses),
+		redisEvictedKeys: delta((s) => s.redis?.evictedKeys),
+		pgBlocksHit: delta((s) => s.postgres?.blks_hit),
+		pgBlocksRead: delta((s) => s.postgres?.blks_read),
+	};
+	const last = statsSeries.filter((s) => s.epochMs <= toMs).at(-1) ?? statsSeries.at(-1);
+	return {
+		...counts,
+		entityHitRate: rate(counts.entityHits, counts.entityMisses),
+		viewHitRate: rate(counts.viewHits, counts.viewMisses),
+		redisKeyspaceHitRate: rate(counts.redisKeyspaceHits, counts.redisKeyspaceMisses),
+		// A "read" is a block Postgres did not hold in shared_buffers; it may still have come from
+		// the page cache. The harness's per-container disk reads (io.stat) separate the two.
+		pgBufferHitRate: rate(counts.pgBlocksHit, counts.pgBlocksRead),
+		redisUsedMemoryBytes: last?.redis?.usedMemory ?? null,
+		redisMaxmemoryBytes: last?.redis?.maxmemory ?? null,
 	};
 }
 
@@ -252,6 +365,7 @@ const steps = record.steps.map((step) => ({
 	targetComponents: step.targetComponents,
 	targetCpuMsPerOk: step.targetCpuSeconds !== null && step.ok ? round((step.targetCpuSeconds * 1000) / step.ok) : null,
 	machine: accountWindow(step.startedAtEpochMs, step.drainEndEpochMs),
+	targetStats: STATS_URL ? statsWindow(step.startedAtEpochMs, step.drainEndEpochMs) : undefined,
 }));
 
 let conditions = {};
@@ -272,6 +386,8 @@ const summary = {
 	cgroups: { paths: groups, limits },
 	steps,
 	memoryPeakBytes,
+	layout: SLICED ? 'tier 2 slices (bench.slice)' : 'podman machine (machine.slice)',
+	statsSamples: STATS_URL ? statsSeries.length : undefined,
 };
 const out = join('/results', `summary-${target}-${basename(runRecordPath).replace(/^run-/, '')}`);
 writeFileSync(out, JSON.stringify(summary, null, 2));
@@ -290,5 +406,19 @@ for (const step of steps) {
 	console.log(
 		`${pad(step.offeredRate, 5)} ${pad(step.achievedRate, 9)} ${pad(step.p50, 7)} ${pad(step.p99, 8)} ${pad(step.quote.p99, 8)} ${pad(step.product.p99, 8)} ${pad(step.productCacheHitRate === null ? '-' : (step.productCacheHitRate * 100).toFixed(1), 6)} ${pad(step.generatorCpuLoad?.toFixed(2), 5)}  ${cols.join('')} ${pad(step.targetCpuMsPerOk, 7)} ${pad(step.machine.unchargedCores, 9)} ${pad(step.machine.otherContainerCores, 7)}${flags}`
 	);
+}
+if (STATS_URL) {
+	const pct = (v) => (v === null || v === undefined ? '-' : (v * 100).toFixed(1));
+	const diskRead = (step) => {
+		const list = step.targetComponents;
+		if (!list?.length || list.some((c) => c.diskReadBytes == null)) return '-';
+		return (list.reduce((sum, c) => sum + c.diskReadBytes, 0) / 2 ** 20).toFixed(1);
+	};
+	console.log(`\ncache and buffers for ${target} (${STATS_URL}), per step:`);
+	console.log(`${'rate'.padStart(5)} ${'entity%'.padStart(8)} ${'view%'.padStart(7)} ${'redis%'.padStart(7)} ${'evicted'.padStart(8)} ${'redisMiB'.padStart(9)} ${'pgbuf%'.padStart(7)} ${'pgReads'.padStart(8)} ${'diskMiB'.padStart(8)}`);
+	for (const step of steps) {
+		const t = step.targetStats ?? {};
+		console.log(`${pad(step.offeredRate, 5)} ${pad(pct(t.entityHitRate), 8)} ${pad(pct(t.viewHitRate), 7)} ${pad(pct(t.redisKeyspaceHitRate), 7)} ${pad(t.redisEvictedKeys, 8)} ${pad(t.redisUsedMemoryBytes == null ? null : (t.redisUsedMemoryBytes / 2 ** 20).toFixed(0), 9)} ${pad(pct(t.pgBufferHitRate), 7)} ${pad(t.pgBlocksRead, 8)} ${pad(diskRead(step), 8)}`);
+	}
 }
 console.log(`summary: ${out}`);

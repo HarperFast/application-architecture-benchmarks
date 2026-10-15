@@ -4,3 +4,5 @@
 .snapshots/
 # Raw run records (every per-request sample). Retained locally, too large to commit.
 results/raw/
+# Source trees of other reference builds (harper-unbatched), extracted with git archive.
+.targets/

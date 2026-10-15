@@ -1,38 +1,66 @@
 #!/usr/bin/env bash
-# Step-0 comparison orchestrator: the Harper reference vs Fastify + Postgres + Redis.
+# Comparison orchestrator: the Harper reference vs Fastify + Postgres + Redis, on tier 1 (a local
+# Podman machine, `dev` only) or tier 2 (the GCP Linux host of environments/gcp, `dev` or `bench`).
 #
 #   scripts/run.sh setup                  resolve ECOMMERCE_STORE_DIR, write .env (local test credentials)
-#   scripts/run.sh load <fpr|harper>      seed the dev dataset and snapshot the loaded state (not measured)
+#   scripts/run.sh build <target>         build the target's image (load and session.sh do this too)
+#   scripts/run.sh load <fpr|harper>      seed the dataset and snapshot the loaded state (not measured)
 #   scripts/run.sh conformance <target>   restore, start, run the ecommerce-store e2e suite from the host
 #   scripts/run.sh diff                   restore both, compare every quote and product response
-#   scripts/run.sh bench <target>         restore, cold start, warm-up + ladder with per-container CPU
+#   scripts/run.sh bench <target>         one trial: restore, drop the page cache, cold start, warm-up +
+#                                         ladder with per-container CPU, verify, join cycles (tier 2)
 #   scripts/run.sh audit                  fpr only: cached vs source-of-truth responses, after a run
 #   scripts/run.sh coherence <target>     the reference's verify-coherence.mjs (readers racing writers)
 #   scripts/run.sh stop                   stop every container in this project
 #
-# Targets: `fpr` (Fastify + Postgres + Redis) and `harper` (the reference, built from the
-# ecommerce-store checkout, unmodified).
+# Targets: `fpr` (Fastify + Postgres + Redis), `harper` (the reference, built from the
+# ecommerce-store checkout, unmodified) and `harper-unbatched` (the reference built from
+# HARPER_UNBATCHED_REF, default dd3a5f5^, the commit before its quote reads were batched; it
+# restores harper's snapshot).
 #
-# Environment: SCALE (dev), RATES, DURATION, WARMUP, TRIALS, QUOTE_SHARE (0.5), WRITE_RATE (20; diagnostics only), BUDGET (shared|split, fpr only),
-# APP_CPUS/PG_CPUS/REDIS_CPUS for the split, WAIT_FOR_IDLE (seconds to wait for other projects'
-# containers to go idle before a measurement; default 900).
+# Environment:
+#   TIER               1 (default; Podman machine) or 2 (Linux host with bench.slice, see environments/gcp)
+#   SCALE              dev (default) or bench (TIER=2 only)
+#   RATES DURATION     the ladder and seconds per step; the warm-up is the harness's fixed WARMUP per scale
+#   TRIALS QUOTE_SHARE WRITE_RATE BENCH_ARGS   trials, request mix (0.5), write stream (20/s), extra harness flags
+#   BUDGET             tier 1: shared (one podman-pod slice, default) | split (per-container CPU quotas);
+#                      tier 2: slice (bench-target.slice, always)
+#   MEMORY_SPLIT       split (default: per-container memory limits summing to the budget) | slice
+#                      (tier 2: the slice's 2 GiB is the only limit; processes still sized from the split)
+#   APP_MEMORY_MIB PG_MEMORY_MIB REDIS_MEMORY_MIB   the memory split (512 / 1280 / 256)
+#   PRE_START_HOOK     command run between a restore and the measured start (default: drop the page cache)
+#   SAMPLE_SH CONDITIONS_SH   tier 2: environments/gcp/sample.sh and conditions.sh, run around each trial
+#   HARNESS_DATASET_HOST      the expanded dataset the generator reads (default: dataset/dev, or
+#                             .work/dataset/bench prepared by ecommerce-store scripts/prepare-dataset.mjs)
+#   WAIT_FOR_IDLE      tier 1: seconds to wait for other projects' containers to go idle (900)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO="$(git -C "$HERE" rev-parse --show-toplevel)"
 cd "$HERE"
 
-if command -v podman >/dev/null 2>&1; then CLI=podman; elif command -v docker >/dev/null 2>&1; then CLI=docker; else
-	echo "need podman or docker" >&2; exit 1
+export TIER="${TIER:-1}"
+if [ "$TIER" = 2 ] && command -v docker >/dev/null 2>&1 && docker version >/dev/null 2>&1; then CLI=docker
+elif command -v podman >/dev/null 2>&1; then CLI=podman
+elif command -v docker >/dev/null 2>&1; then CLI=docker
+else echo "need podman or docker" >&2; exit 1
 fi
 PROJECT=aab-ecommerce-rough
 COMPOSE=("$CLI" compose -f "$HERE/compose.yaml")
+# Tier 2 places every target container in bench-target.slice and the generator and loaders in
+# bench-generator.slice (environments/gcp/host-setup.sh creates both).
+if [ "$TIER" = 2 ]; then COMPOSE+=(-f "$HERE/compose.tier2.yaml"); fi
 SNAP="$HERE/.snapshots"
 RAW="$HERE/results/raw"
 mkdir -p "$SNAP" "$RAW"
 
 say() { printf '\n==> %s\n' "$*" >&2; }
 compose() { "${COMPOSE[@]}" "$@" 2> >(grep -v -e 'external compose provider' -e '^\s*$' -e '^.\[0m$' >&2); }
+# Restore and snapshot helpers run in the target slice on tier 2, as ecommerce-store's do (they
+# use `compose run harper`): only stopped targets are there then, and the page cache a restore
+# fills is charged inside the budget, then dropped before the cold start.
+HELPER_PLACEMENT=()
+if [ "$TIER" = 2 ]; then HELPER_PLACEMENT=(--cgroup-parent bench-target.slice); fi
 
 # --- configuration -------------------------------------------------------------------------------
 setup() {
@@ -57,79 +85,196 @@ setup() {
 	if [ -n "$override" ]; then export ECOMMERCE_STORE_DIR="$override"; fi
 	[ -f "$ECOMMERCE_STORE_DIR/bench/cgroups.mjs" ] || { echo "$ECOMMERCE_STORE_DIR predates the cgroup-accounting harness (harper-5.3); point ECOMMERCE_STORE_DIR at a checkout that has it" >&2; exit 1; }
 	export SCALE="${SCALE:-dev}"
-	[ "$SCALE" = dev ] || { echo "only SCALE=dev is wired up in this rough cut" >&2; exit 1; }
+	case "$SCALE" in
+		dev) ;;
+		# As the reference's orchestrator: on a local machine a bench run's DATA-004 evidence and
+		# CPU figures cannot be trusted, and the dataset does not fit a laptop's disk with margin.
+		bench) [ "$TIER" = 2 ] || { echo "SCALE=bench runs only on tier 2 (TIER=2); local runs use SCALE=dev" >&2; exit 1; } ;;
+		*) echo "SCALE must be dev or bench" >&2; exit 1 ;;
+	esac
+	# The loader reads the committed dataset (bench gzipped, verified and streamed as is); the
+	# generator reads an expanded copy, as the reference's harness does.
 	export DATASET_DIR="$ECOMMERCE_STORE_DIR/dataset/$SCALE"
-	# Snapshots are named by the dataset generator version too, so a regenerated dataset writes
-	# a new snapshot beside the old one (as the reference's orchestrator does).
+	if [ "$SCALE" = dev ]; then
+		HARNESS_DATASET_HOST="${HARNESS_DATASET_HOST:-$ECOMMERCE_STORE_DIR/dataset/dev}"
+	else
+		HARNESS_DATASET_HOST="${HARNESS_DATASET_HOST:-$ECOMMERCE_STORE_DIR/.work/dataset/bench}"
+	fi
+	[ -f "$HARNESS_DATASET_HOST/MANIFEST.json" ] || { echo "no expanded dataset at $HARNESS_DATASET_HOST (run ecommerce-store scripts/prepare-dataset.mjs --scale $SCALE)" >&2; exit 1; }
+	case "$HARNESS_DATASET_HOST" in
+		"$ECOMMERCE_STORE_DIR"/*) export HARNESS_DATASET="/work/${HARNESS_DATASET_HOST#"$ECOMMERCE_STORE_DIR"/}" ;;
+		*) echo "HARNESS_DATASET_HOST must be inside ECOMMERCE_STORE_DIR (it reaches the generator through that mount)" >&2; exit 1 ;;
+	esac
+	export HARNESS_DATASET_HOST
+	# Snapshots are named by target, scale and dataset generator version, so a regenerated dataset
+	# writes a new snapshot beside the old one (as the reference's orchestrator does).
 	DATASET_GENERATOR="$(node -p "require('$DATASET_DIR/MANIFEST.json').generatorVersion")"
 	export DATASET_GENERATOR
-	# A restore runs in its own container, so the restored files sit in the VM's page cache charged
-	# to no target. Drop it between the restore and the measured start, for every target, as the
+	# Tier 2's local SSD has room for an uncompressed snapshot, which restores far faster than a
+	# gzipped one at bench scale; tier 1 is short of disk.
+	export SNAPSHOT_COMPRESS="${SNAPSHOT_COMPRESS:-$([ "$TIER" = 2 ] && echo 0 || echo 1)}"
+	# A restore runs in its own container, so the restored files sit in the page cache charged to
+	# no target. Drop it between the restore and the measured start, for every target, as the
 	# reference's orchestrator does (its PRE_START_HOOK). On a Podman machine this also cools every
 	# other container on the machine.
-	if [ -z "${PRE_START_HOOK+set}" ] && [ "$CLI" = podman ] && podman machine inspect >/dev/null 2>&1; then
-		PRE_START_HOOK="podman machine ssh 'sync; echo 3 | sudo tee /proc/sys/vm/drop_caches >/dev/null'"
+	if [ -z "${PRE_START_HOOK+set}" ]; then
+		if [ "$CLI" = podman ] && podman machine inspect >/dev/null 2>&1; then
+			PRE_START_HOOK="podman machine ssh 'sync; echo 3 | sudo tee /proc/sys/vm/drop_caches >/dev/null'"
+		elif [ "$(uname -s)" = Linux ]; then
+			PRE_START_HOOK="sync; echo 3 | sudo tee /proc/sys/vm/drop_caches >/dev/null"
+		fi
 	fi
 	export PRE_START_HOOK="${PRE_START_HOOK:-}"
 	export RESULTS_DIR="$RAW"
 	export TARGET_CPUS="${TARGET_CPUS:-2}" TARGET_MEMORY_MIB="${TARGET_MEMORY_MIB:-2048}"
-	export BUDGET="${BUDGET:-shared}"
+	export BUDGET="${BUDGET:-$([ "$TIER" = 2 ] && echo slice || echo shared)}"
 	configure_budget
+	# Steps of at least 60 s on bench: tier-2 cycle samples are 250 ms apart, so a 15 s step could
+	# misattribute up to ~3% of its cycles at its boundaries (ecommerce-store PUBLISHED_RUN).
+	export DURATION="${DURATION:-$([ "$SCALE" = bench ] && echo 60 || echo 15)}"
+	# Every image, as compose resolves it (pinned by digest), for the run record and the helpers.
+	IMAGES="$(compose --profile harper --profile tools config --format json | node -e '
+		let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
+			const { services } = JSON.parse(s);
+			const args = services.harper?.build?.args ?? {};
+			console.log(JSON.stringify({
+				postgres: services.postgres.image, redis: services.redis.image, node: services.app.build?.args?.NODE_IMAGE ?? null,
+				generator: services.bench.image, harperNode: args.NODE_IMAGE ?? null, harperNodeSlim: args.NODE_SLIM_IMAGE ?? null,
+			}));
+		});')"
+	export IMAGES
+	HELPER_IMAGE="$(node -p "JSON.parse(process.argv[1]).postgres" "$IMAGES")"
+	NODE_HELPER_IMAGE="$(node -p "JSON.parse(process.argv[1]).generator" "$IMAGES")"
 }
 
 ctr() { echo "${PROJECT}-$1-1"; }
 
-# The fpr budget. `split`: per-container CPU limits summing to TARGET_CPUS. `shared`: all three
-# containers run under one cgroup slice capped at TARGET_CPUS / TARGET_MEMORY (a podman pod that
-# shares no namespaces, used only for its cgroup), so CPU is one pool, as it is for the single
-# Harper process; per-container memory limits apply in both modes.
+# The fpr budget and the sizing of every process in it.
+#
+# CPU. Tier 1 `shared`: all three containers under one cgroup slice capped at TARGET_CPUS /
+# TARGET_MEMORY (a podman pod that shares no namespaces, used only for its cgroup), so CPU is one
+# pool, as it is for the single Harper process. Tier 1 `split`: per-container CPU quotas summing to
+# TARGET_CPUS (a sensitivity). Tier 2 `slice`: bench-target.slice holds the budget (cores 2-3,
+# 2 GiB) for every target, and compose.tier2.yaml places the containers in it.
+#
+# Memory. Per-container limits summing to the budget (MEMORY_SPLIT=split), and every process sized
+# from its own container's limit, explicitly: a container cannot see its slice's limits on tier 2,
+# and on a Podman machine it sees the VM.
 configure_budget() {
-	if [ "$BUDGET" = shared ]; then
-		local pod="${PROJECT}-budget"
-		if ! "$CLI" pod exists "$pod"; then
-			"$CLI" pod create --name "$pod" --share none --infra=false --cpus "$TARGET_CPUS" --memory "${TARGET_MEMORY_MIB}m" >/dev/null
-		fi
-		BUDGET_CGROUP_PARENT="machine-libpod_pod_$("$CLI" pod inspect "$pod" --format '{{.ID}}').slice"
-		export BUDGET_CGROUP_PARENT
-		export APP_CPUS="$TARGET_CPUS" PG_CPUS="$TARGET_CPUS" REDIS_CPUS="$TARGET_CPUS"
-	elif [ "$BUDGET" = split ]; then
-		unset BUDGET_CGROUP_PARENT
-		export APP_CPUS="${APP_CPUS:-1.25}" PG_CPUS="${PG_CPUS:-0.5}" REDIS_CPUS="${REDIS_CPUS:-0.25}"
-		node -e "const s=$APP_CPUS+$PG_CPUS+$REDIS_CPUS; if (Math.abs(s-$TARGET_CPUS)>1e-9) { console.error('split sums to '+s+', budget is $TARGET_CPUS'); process.exit(1) }"
-	else
-		echo "BUDGET must be shared or split" >&2; exit 1
-	fi
-	export APP_MEMORY_MIB="${APP_MEMORY_MIB:-640}" PG_MEMORY_MIB="${PG_MEMORY_MIB:-1024}" REDIS_MEMORY_MIB="${REDIS_MEMORY_MIB:-384}"
+	case "$TIER:$BUDGET" in
+		1:shared)
+			local pod="${PROJECT}-budget"
+			if ! "$CLI" pod exists "$pod"; then
+				"$CLI" pod create --name "$pod" --share none --infra=false --cpus "$TARGET_CPUS" --memory "${TARGET_MEMORY_MIB}m" >/dev/null
+			fi
+			BUDGET_CGROUP_PARENT="machine-libpod_pod_$("$CLI" pod inspect "$pod" --format '{{.ID}}').slice"
+			export BUDGET_CGROUP_PARENT BUDGET_CGROUP="/machine.slice/$BUDGET_CGROUP_PARENT"
+			export APP_CPUS="$TARGET_CPUS" PG_CPUS="$TARGET_CPUS" REDIS_CPUS="$TARGET_CPUS" ;;
+		1:split)
+			unset BUDGET_CGROUP_PARENT; export BUDGET_CGROUP=""
+			export APP_CPUS="${APP_CPUS:-1.25}" PG_CPUS="${PG_CPUS:-0.5}" REDIS_CPUS="${REDIS_CPUS:-0.25}"
+			node -e "const s=$APP_CPUS+$PG_CPUS+$REDIS_CPUS; if (Math.abs(s-$TARGET_CPUS)>1e-9) { console.error('split sums to '+s+', budget is $TARGET_CPUS'); process.exit(1) }" ;;
+		2:slice)
+			# compose.tier2.yaml sets cgroup_parent and removes every target container's CPU quota:
+			# the slice's cpuset is the budget, and a quota would add CFS throttling.
+			unset BUDGET_CGROUP_PARENT; export BUDGET_CGROUP="/bench.slice/bench-target.slice"
+			export APP_CPUS=none PG_CPUS=none REDIS_CPUS=none ;;
+		*) echo "BUDGET must be shared or split on tier 1, slice on tier 2" >&2; exit 1 ;;
+	esac
+	export MEMORY_SPLIT="${MEMORY_SPLIT:-split}"
+	export APP_MEMORY_MIB="${APP_MEMORY_MIB:-512}" PG_MEMORY_MIB="${PG_MEMORY_MIB:-1280}" REDIS_MEMORY_MIB="${REDIS_MEMORY_MIB:-256}"
 	node -e "const m=$APP_MEMORY_MIB+$PG_MEMORY_MIB+$REDIS_MEMORY_MIB; if (m!==$TARGET_MEMORY_MIB) { console.error('memory split sums to '+m+' MiB, budget is $TARGET_MEMORY_MIB'); process.exit(1) }"
+	export APP_WORKERS="${APP_WORKERS:-2}"
+	# Node: the primary and each worker get the same heap cap; about 190 MiB of the container is
+	# left for the primary, buffers and the page cache of the Node binary and modules.
+	export NODE_HEAP_MIB="${NODE_HEAP_MIB:-$(( (APP_MEMORY_MIB - 192) / APP_WORKERS ))}"
+	# Postgres: the manual's starting points, against the container.
+	export PG_SHARED_BUFFERS="${PG_SHARED_BUFFERS:-$(( PG_MEMORY_MIB / 4 ))MB}"
+	export PG_EFFECTIVE_CACHE_SIZE="${PG_EFFECTIVE_CACHE_SIZE:-$(( PG_MEMORY_MIB * 3 / 4 ))MB}"
+	# Redis: about 60% of the container, leaving fragmentation, buffers and its binary's page cache.
+	export REDIS_MAXMEMORY_MB="${REDIS_MAXMEMORY_MB:-$(( REDIS_MEMORY_MIB * 3 / 5 ))}"
+	if [ "$MEMORY_SPLIT" = slice ]; then
+		[ "$TIER" = 2 ] || { echo "MEMORY_SPLIT=slice needs the tier-2 slice to hold the total" >&2; exit 1; }
+		# The slice's MemoryMax is the only limit; each container may use what the others leave,
+		# as processes on one machine would. The processes are still sized from the split.
+		export APP_MEMORY_LIMIT_MIB="$TARGET_MEMORY_MIB" PG_MEMORY_LIMIT_MIB="$TARGET_MEMORY_MIB" REDIS_MEMORY_LIMIT_MIB="$TARGET_MEMORY_MIB"
+	else
+		export APP_MEMORY_LIMIT_MIB="$APP_MEMORY_MIB" PG_MEMORY_LIMIT_MIB="$PG_MEMORY_MIB" REDIS_MEMORY_LIMIT_MIB="$REDIS_MEMORY_MIB"
+	fi
 }
 
-snapshot_of() { echo "$1-$SCALE-dataset-$DATASET_GENERATOR.tar.gz"; }
+base_of() { case "$1" in harper-unbatched) echo harper ;; *) echo "$1" ;; esac; }
+snapshot_of() { echo "$(base_of "$1")-$SCALE-dataset-$DATASET_GENERATOR.tar$([ "$SNAPSHOT_COMPRESS" = 1 ] && echo .gz)"; }
 services_of() { if [ "$1" = fpr ]; then echo "postgres redis app"; else echo "harper"; fi; }
-profile_of() { if [ "$1" = harper ]; then echo "--profile harper"; fi; }
+profile_of() { if [ "$1" != fpr ]; then echo "--profile harper"; fi; }
 port_of() { if [ "$1" = fpr ]; then echo "${APP_HOST_PORT:-39926}"; else echo "${HARPER_HOST_PORT:-39936}"; fi; }
 url_in_network() { if [ "$1" = fpr ]; then echo "http://app:3000"; else echo "http://harper:9926"; fi; }
 volume_of() { if [ "$1" = fpr ]; then echo "${PROJECT}_pg-data"; else echo "${PROJECT}_harper-data"; fi; }
-mount_of() { if [ "$1" = fpr ]; then echo "/var/lib/postgresql"; else echo "/data"; fi; }
+all_targets() { echo "fpr harper"; }
+
+# The build of the reference a trial runs, through ecommerce-store's own build variables
+# (containers/compose.yaml: TARGET_CONTEXT, TARGET_DOCKERFILE, TARGET_IMAGE_TAG; run-benchmark.sh
+# sets them from TARGET_REF the same way). harper is the checkout. harper-unbatched is the commit
+# HARPER_UNBATCHED_REF names (default dd3a5f5^, the build before quote batching), extracted with
+# git archive into .targets/ here and built with the checkout's Dockerfile, so the two builds
+# differ only in application code and both images stay built. It restores harper's snapshot, so
+# its schema must be the checkout's.
+select_variant() {
+	export TARGET_DOCKERFILE="$ECOMMERCE_STORE_DIR/containers/Dockerfile"
+	if [ "$1" != harper-unbatched ]; then
+		export TARGET_CONTEXT="$ECOMMERCE_STORE_DIR" TARGET_IMAGE_TAG=checkout TARGET_COMMIT="$(git -C "$ECOMMERCE_STORE_DIR" rev-parse HEAD)"
+		return
+	fi
+	grep -q 'TARGET_IMAGE_TAG' "$ECOMMERCE_STORE_DIR/containers/compose.yaml" \
+		|| { echo "harper-unbatched needs an ecommerce-store checkout whose compose builds from TARGET_CONTEXT (harper-5.3 after 9306a04)" >&2; exit 1; }
+	local ref="${HARPER_UNBATCHED_REF:-dd3a5f5^}" commit
+	commit="$(git -C "$ECOMMERCE_STORE_DIR" rev-parse --verify --quiet "${ref}^{commit}")" || { echo "HARPER_UNBATCHED_REF $ref is not a commit in $ECOMMERCE_STORE_DIR" >&2; exit 1; }
+	git -C "$ECOMMERCE_STORE_DIR" diff --quiet "$commit" HEAD -- schemas \
+		|| { echo "$ref has a different schema from the checkout; it cannot restore harper's snapshot" >&2; exit 1; }
+	export TARGET_CONTEXT="$HERE/.targets/$commit" TARGET_IMAGE_TAG="${commit:0:12}" TARGET_COMMIT="$commit"
+	if [ ! -d "$TARGET_CONTEXT" ]; then
+		rm -rf "$TARGET_CONTEXT.partial" && mkdir -p "$TARGET_CONTEXT.partial"
+		# The dataset is loaded from the checkout, never built in.
+		git -C "$ECOMMERCE_STORE_DIR" archive "$commit" -- . ':(exclude)dataset' | tar -x -C "$TARGET_CONTEXT.partial"
+		mv "$TARGET_CONTEXT.partial" "$TARGET_CONTEXT"
+	fi
+}
+
+build_target() {
+	select_variant "$1"
+	if [ "$1" = fpr ]; then compose build app; else compose --profile harper build harper; fi
+}
 
 stop_target() {
 	# shellcheck disable=SC2046
 	compose $(profile_of "$1") stop $(services_of "$1") >/dev/null 2>&1 || true
 }
 
+# A container's cgroup v2 directory, relative to the cgroup root.
+cgroup_of() {
+	if [ "$CLI" = podman ]; then
+		"$CLI" inspect --format '{{.State.CgroupPath}}' "$1"
+	else
+		local id; id="$("$CLI" inspect --format '{{.Id}}' "$1")"
+		find /sys/fs/cgroup -maxdepth 5 -type d -name "docker-$id.scope" 2>/dev/null | head -1 | sed 's|^/sys/fs/cgroup||'
+	fi
+}
+
 # --- seed + snapshot (not measured) --------------------------------------------------------------
 load() {
 	local target="$1"
-	stop_target fpr; stop_target harper
+	for t in $(all_targets); do stop_target "$t"; done
+	select_variant "$target"
+	build_target "$target"
 	if [ "$target" = fpr ]; then
-		compose build app
 		compose up -d postgres redis
-		compose run --rm loader # retries until Postgres and Redis answer
+		# Retries until Postgres and Redis answer; verifies every file against MANIFEST.json first.
+		compose run --rm loader
 	else
-		compose --profile harper build harper
 		# Seed onto an EMPTY volume. The loader writes through the operations API, which does not
 		# invalidate Harper's derived ProductView; a view left from earlier state (or filled by a
 		# readiness probe before the load) would survive into the snapshot. That happened once.
-		"$CLI" run --rm -v "$(volume_of harper):/data" docker.io/library/postgres:18.6-trixie find /data -mindepth 1 -delete
+		"$CLI" run --rm ${HELPER_PLACEMENT[@]+"${HELPER_PLACEMENT[@]}"} -v "$(volume_of harper):/data" "$HELPER_IMAGE" find /data -mindepth 1 -delete
 		compose --profile harper up -d harper
 		# Probe a path that touches no cache: an empty target answers 404, any status below 500 is up.
 		node "$ECOMMERCE_STORE_DIR/containers/wait-ready.mjs" --accept any --url "http://localhost:$(port_of harper)/" >/dev/null
@@ -137,54 +282,61 @@ load() {
 	fi
 	say "snapshotting $target"
 	stop_target "$target"
-	"$CLI" run --rm -v "$(volume_of "$target"):/data:ro" -v "$SNAP:/snap" docker.io/library/postgres:18.6-trixie \
-		tar -C /data -czf "/snap/$(snapshot_of "$target")" .
+	"$CLI" run --rm ${HELPER_PLACEMENT[@]+"${HELPER_PLACEMENT[@]}"} -v "$(volume_of "$target"):/data:ro" -v "$SNAP:/snap" "$HELPER_IMAGE" \
+		tar -C /data "-c$([ "$SNAPSHOT_COMPRESS" = 1 ] && echo z)f" "/snap/$(snapshot_of "$target")" .
 	ls -la "$SNAP/$(snapshot_of "$target")" >&2
 }
 
 restore() {
 	local target="$1"
-	[ -f "$SNAP/$(snapshot_of "$target")" ] || { echo "no $(snapshot_of "$target"); run: scripts/run.sh load $target" >&2; exit 1; }
+	[ -f "$SNAP/$(snapshot_of "$target")" ] || { echo "no $(snapshot_of "$target"); run: scripts/run.sh load $(base_of "$target")" >&2; exit 1; }
 	stop_target "$target"
-	"$CLI" run --rm -v "$(volume_of "$target"):/data" -v "$SNAP:/snap:ro" docker.io/library/postgres:18.6-trixie \
-		sh -c 'find /data -mindepth 1 -delete && tar -C /data -xzf "/snap/$0"' "$(snapshot_of "$target")"
+	"$CLI" run --rm ${HELPER_PLACEMENT[@]+"${HELPER_PLACEMENT[@]}"} -v "$(volume_of "$target"):/data" -v "$SNAP:/snap:ro" "$HELPER_IMAGE" \
+		sh -c 'find /data -mindepth 1 -delete && tar -C /data -xf "/snap/$0"' "$(snapshot_of "$target")"
 }
 
-# Create (or re-create, if the budget changed) the target's containers without starting them, then
-# start every process at once and time the first successful product response: the cold start.
+# Create (or re-create, if the budget or variant changed) the target's containers without starting
+# them, drop the page cache, then start every process at once and time the first successful product
+# response: the cold start.
 cold_start() {
 	local target="$1" port t0 probe
+	select_variant "$target"
 	port="$(port_of "$target")"
 	probe="http://localhost:$port/product/product-000000?tier=standard&region=us-east"
 	# shellcheck disable=SC2046
 	compose $(profile_of "$target") up --no-start $(services_of "$target") >/dev/null
 	local ctrs=()
 	for s in $(services_of "$target"); do ctrs+=("$(ctr "$s")"); done
-	if [ -n "$PRE_START_HOOK" ]; then bash -c "$PRE_START_HOOK"; fi
+	export PAGE_CACHE_DROPPED_AT=""
+	if [ -n "$PRE_START_HOOK" ]; then bash -c "$PRE_START_HOOK"; PAGE_CACHE_DROPPED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ); fi
 	t0=$(node -e 'console.log(Date.now())')
 	"$CLI" start "${ctrs[@]}" >/dev/null
 	# The reference orchestrator's probe, from outside the target (no process charged to its
 	# budget): every 25 ms, milliseconds from t0 to the first accepted response.
-	COLD_ANY_MS=""
-	COLD_MS=$(node "$ECOMMERCE_STORE_DIR/containers/wait-ready.mjs" --accept ok --since "$t0" --timeout 180000 --url "$probe")
+	COLD_MS=$(node "$ECOMMERCE_STORE_DIR/containers/wait-ready.mjs" --accept ok --since "$t0" --timeout 600000 --url "$probe")
 	say "$target cold start: first 200 after ${COLD_MS}ms"
 }
 
-# Wait until no container outside this project is busy, so a measurement is not taken under
-# contention from another workload on the same machine. Records what it saw. Uses instantaneous
-# cgroup counters (scripts/busy.mjs): `podman stats` reports lifetime-average CPU.
+# Tier 1 only: wait until no container outside this project is busy, so a measurement is not
+# taken under contention from another workload on the same machine. Uses instantaneous cgroup
+# counters (scripts/busy.mjs): `podman stats` reports lifetime-average CPU. Tier 2 is a dedicated
+# VM whose housekeeping runs on its own CPUs; there, other running containers are only recorded.
 busy_others() {
 	local groups="{" sep="" id name path
 	while read -r id name; do
 		case "$name" in "$PROJECT"-*) continue ;; esac
-		path=$("$CLI" inspect --format '{{.State.CgroupPath}}' "$id" 2>/dev/null) || continue
+		path=$(cgroup_of "$id" 2>/dev/null) || continue
 		[ -n "$path" ] || continue
 		groups="$groups$sep\"$name\":\"$path\""; sep=","
 	done < <("$CLI" ps --no-trunc --format '{{.ID}} {{.Names}}')
 	groups="$groups}"
 	[ "$groups" = "{}" ] && return 0
+	if [ "$TIER" = 2 ]; then
+		echo "$groups" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(Object.keys(JSON.parse(s)).map(n=>n+"=running").join(",")))'
+		return 0
+	fi
 	"$CLI" run --rm -e CGROUPS="$groups" -v /sys/fs/cgroup:/host/cgroup:ro -v "$HERE/scripts:/cmp:ro" \
-		docker.io/library/node:24.21.0-slim node /cmp/busy.mjs
+		"$NODE_HELPER_IMAGE" node /cmp/busy.mjs
 }
 
 wait_for_idle() {
@@ -192,6 +344,7 @@ wait_for_idle() {
 	while :; do
 		busy="$(busy_others)"
 		[ -z "$busy" ] && break
+		if [ "$TIER" = 2 ]; then say "other containers running on this host (recorded): $busy"; break; fi
 		if [ "$(date +%s)" -gt "$deadline" ]; then say "other containers still busy ($busy); proceeding, recorded as contention"; break; fi
 		say "waiting for other workloads to go idle: $busy"
 		sleep 20
@@ -202,50 +355,84 @@ wait_for_idle() {
 conditions_json() {
 	local target="$1" stamp="$2"
 	local file="$RAW/conditions-$target-$stamp.json"
-	local others; others=$("$CLI" stats --no-stream --format json 2>/dev/null || echo '[]')
-	local images="" applied_memory=0
+	local images="" applied_memory=0 parents=""
 	for s in $(services_of "$target"); do
-		images="$images $("$CLI" inspect --format '{{.ImageName}}@{{.Image}}' "$(ctr "$s")")"
+		images="$images $("$CLI" inspect --format '{{.Config.Image}}@{{.Image}}' "$(ctr "$s")")"
 		applied_memory=$(( applied_memory + $("$CLI" inspect --format '{{.HostConfig.Memory}}' "$(ctr "$s")") ))
+		parents="$parents $("$CLI" inspect --format '{{.HostConfig.CgroupParent}}' "$(ctr "$s")")"
 	done
+	# What the target may use in total: the sum of its containers' limits, or the budget if that is
+	# smaller (MEMORY_SPLIT=slice gives each container the whole slice). verify-run-record reads it.
+	local budget_bytes=$(( TARGET_MEMORY_MIB * 1024 * 1024 ))
+	if [ "$applied_memory" -gt "$budget_bytes" ]; then applied_memory=$budget_bytes; fi
+	local info; info="$("$CLI" info --format json 2>/dev/null || echo '{}')"
+	local target_dirty=0 harness_dirty=0 aab_dirty=0
+	[ -n "$(git -C "$REPO" status --porcelain)" ] && aab_dirty=1
+	[ -n "$(git -C "$ECOMMERCE_STORE_DIR" status --porcelain)" ] && harness_dirty=1
+	case "$target" in fpr) target_dirty=$aab_dirty ;; harper) target_dirty=$harness_dirty ;; esac
 	node -e '
-		const [file, target, stamp, cold, coldAny, contention, others, images, budget, aabCommit, aabDirty, esCommit, esDirty, machine, appliedMemory, snapshot] = process.argv.slice(1);
+		const [file, target, stamp, cold, contention, images, budget, aabCommit, aabDirty, esCommit, esDirty, info, appliedMemory, snapshot, parents, targetCommit, targetDirty] = process.argv.slice(1);
 		const env = process.env;
+		const i = JSON.parse(info || "{}");
+		const pinned = JSON.parse(env.IMAGES);
+		// Podman and Docker report the host differently.
+		const machine = i.host
+			? { cpus: i.host.cpus, memTotal: i.host.memTotal, kernel: i.host.kernel, arch: i.host.arch, distribution: i.host.distribution, runtime: "podman " + i.version?.Version, cgroups: i.host.cgroupVersion, ociRuntime: i.host.ociRuntime?.name }
+			: { cpus: i.NCPU, memTotal: i.MemTotal, kernel: i.KernelVersion, arch: i.Architecture, distribution: i.OperatingSystem, runtime: "docker " + i.ServerVersion, cgroups: i.CgroupVersion, cgroupDriver: i.CgroupDriver };
+		const distinctParents = [...new Set(parents.trim().split(/\s+/).filter(Boolean))];
+		const fpr = target === "fpr";
 		const out = {
-			tier: 1,
+			tier: +env.TIER,
 			stamp, target,
-			coldStart: { ms: +cold, firstNon5xxMs: coldAny ? +coldAny : null, probe: "host, published port, ecommerce-store containers/wait-ready.mjs (25 ms), every target process started at once" },
+			coldStart: { ms: +cold, probe: "host, published port, ecommerce-store containers/wait-ready.mjs (25 ms), every target process started at once" },
 			// Read by ecommerce-store verify-run-record.mjs: the page-cache drop before the cold start,
-			// and the memory the runtime applied to the target (summed over its containers).
+			// and what the runtime applied to the target (memory summed over its containers; the
+			// cgroup parent they share, or every distinct one if they differ).
 			preStartHook: env.PRE_START_HOOK || null,
-			target: { applied: { memoryBytes: +appliedMemory } },
-			snapshot: { file: snapshot, datasetGenerator: env.DATASET_GENERATOR },
+			pageCacheDroppedAt: env.PAGE_CACHE_DROPPED_AT || null,
+			target: {
+				applied: { memoryBytes: +appliedMemory, cgroupParent: distinctParents.join(",") || null },
+				baseImages: fpr ? { postgres: pinned.postgres, redis: pinned.redis, node: pinned.node } : { "node:24": pinned.harperNode, "node:24-slim": pinned.harperNodeSlim },
+				build: fpr ? null : { commit: targetCommit, imageTag: env.TARGET_IMAGE_TAG, source: target === "harper-unbatched" ? "git archive of " + (env.HARPER_UNBATCHED_REF || "dd3a5f5^") : "checkout" },
+			},
+			generator: { image: pinned.generator, cpus: env.BENCH_CPUS || (env.TIER === "2" ? "4" : "2"), memory: env.BENCH_MEMORY || (env.TIER === "2" ? "3g" : "1g") },
+			snapshot: { file: snapshot, datasetGenerator: env.DATASET_GENERATOR, compressed: env.SNAPSHOT_COMPRESS === "1" },
 			code: {
+				target: { commit: targetCommit, dirty: targetDirty === "1" },
 				benchmarksRepo: { commit: aabCommit, dirty: aabDirty === "1" },
 				ecommerceStore: { commit: esCommit, dirty: esDirty === "1" },
 			},
 			images: images.trim().split(/\s+/),
-			budget: target === "fpr"
-				? { mode: budget, targetCpus: +env.TARGET_CPUS, targetMemoryMiB: +env.TARGET_MEMORY_MIB, cgroupParent: env.BUDGET_CGROUP_PARENT || null,
-				    cpus: { app: +env.APP_CPUS, postgres: +env.PG_CPUS, redis: +env.REDIS_CPUS },
-				    memoryMiB: { app: +env.APP_MEMORY_MIB, postgres: +env.PG_MEMORY_MIB, redis: +env.REDIS_MEMORY_MIB } }
-				: { mode: "single container", targetCpus: +(env.TARGET_CPUS), targetMemoryMiB: +env.TARGET_MEMORY_MIB, harperThreads: +(env.HARPER_THREADS || 2) },
-			lifecycle: { coldStartFirst200Ms: +cold, coldStartFirstNon5xxMs: coldAny ? +coldAny : null, restoredFromSnapshot: true },
+			budget: fpr
+				? { mode: budget, memorySplit: env.MEMORY_SPLIT, targetCpus: +env.TARGET_CPUS, targetMemoryMiB: +env.TARGET_MEMORY_MIB,
+				    cgroup: env.BUDGET_CGROUP || null,
+				    cpus: { app: env.APP_CPUS, postgres: env.PG_CPUS, redis: env.REDIS_CPUS },
+				    memoryMiB: { app: +env.APP_MEMORY_MIB, postgres: +env.PG_MEMORY_MIB, redis: +env.REDIS_MEMORY_MIB },
+				    memoryLimitMiB: { app: +env.APP_MEMORY_LIMIT_MIB, postgres: +env.PG_MEMORY_LIMIT_MIB, redis: +env.REDIS_MEMORY_LIMIT_MIB },
+				    sizing: { workers: +env.APP_WORKERS, nodeHeapMiB: +env.NODE_HEAP_MIB, pgSharedBuffers: env.PG_SHARED_BUFFERS, pgEffectiveCacheSize: env.PG_EFFECTIVE_CACHE_SIZE, pgWorkMem: env.PG_WORK_MEM || "4MB", redisMaxmemoryMB: +env.REDIS_MAXMEMORY_MB } }
+				: { mode: "single container", cgroup: env.TIER === "2" ? "/bench.slice/bench-target.slice" : null, targetCpus: +env.TARGET_CPUS, targetMemoryMiB: +env.TARGET_MEMORY_MIB, harperThreads: +(env.HARPER_THREADS || 2) },
+			lifecycle: { coldStartFirst200Ms: +cold, restoredFromSnapshot: true },
 			networking: "user-defined bridge (compose), plain HTTP; generator in a separate container on the same bridge",
-			machine: JSON.parse(machine),
-			contentionAtStart: { busyOtherContainers: contention || null, allContainers: JSON.parse(others).map(r => ({ name: r.name, cpu: r.cpu_percent, mem: r.mem_usage })) },
-			caveats: [
-				"Tier 1 (containers in a macOS podman VM): signal, not results. CPU clock not pinned; no cycle-normalized figure exists.",
-				"dev dataset: fits in memory; never a benchmark target (DATA-004).",
-			],
+			machine,
+			contentionAtStart: { otherContainers: contention || null },
+			caveats: env.TIER === "2"
+				? ["Tier 2, first session: exploratory (step 0 for tier 2), not a publishable result. Clock bounded (ALL_CORE_MAX) and measured per step by sample.sh and the cycle join, never pinned."]
+				: ["Tier 1 (containers in a macOS podman VM): signal, not results. CPU clock not pinned; no cycle-normalized figure exists.", "dev dataset: fits in memory; never a benchmark target (DATA-004)."],
 		};
 		require("node:fs").writeFileSync(file, JSON.stringify(out, null, 2));
-	' "$file" "$target" "$stamp" "$COLD_MS" "$COLD_ANY_MS" "$CONTENTION" "$others" "$images" "$BUDGET" \
-		"$(git -C "$REPO" rev-parse HEAD)" "$([ -n "$(git -C "$REPO" status --porcelain)" ] && echo 1 || echo 0)" \
-		"$(git -C "$ECOMMERCE_STORE_DIR" rev-parse HEAD)" "$([ -n "$(git -C "$ECOMMERCE_STORE_DIR" status --porcelain)" ] && echo 1 || echo 0)" \
-		"$("$CLI" info --format json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const i=JSON.parse(s);console.log(JSON.stringify({cpus:i.host.cpus,memTotal:i.host.memTotal,kernel:i.host.kernel,arch:i.host.arch,os:i.host.os,distribution:i.host.distribution,podman:i.version.Version,cgroups:i.host.cgroupVersion,runtime:i.host.ociRuntime?.name}))})')" \
-		"$applied_memory" "$(snapshot_of "$target")"
+	' "$file" "$target" "$stamp" "$COLD_MS" "$CONTENTION" "$images" "$BUDGET" \
+		"$(git -C "$REPO" rev-parse HEAD)" "$aab_dirty" "$(git -C "$ECOMMERCE_STORE_DIR" rev-parse HEAD)" "$harness_dirty" \
+		"$info" "$applied_memory" "$(snapshot_of "$target")" "$parents" "$(target_commit "$target")" "$target_dirty"
 	echo "$file"
+}
+
+# The commit of the target's application code: this repository for fpr, the ecommerce-store
+# checkout for harper, HARPER_UNBATCHED_REF for harper-unbatched.
+target_commit() {
+	case "$1" in
+		fpr) git -C "$REPO" rev-parse HEAD ;;
+		*) select_variant "$1"; echo "$TARGET_COMMIT" ;;
+	esac
 }
 
 post_run_stats() {
@@ -254,10 +441,10 @@ post_run_stats() {
 	if [ "$target" = fpr ]; then
 		{
 			echo '{"meta":'; curl -s "http://localhost:$(port_of fpr)/__meta"
-			echo ',"redisCacheCounters":'; "$CLI" exec "$(ctr redis)" redis-cli --json HGETALL stats:cache
+			echo ',"stats":'; curl -s "http://localhost:$(port_of fpr)/__stats"
 			echo ',"redisInfo":'; "$CLI" exec "$(ctr redis)" redis-cli INFO | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const o={};for(const l of s.split(/\r?\n/)){const m=/^([a-z_0-9]+):(.*)$/.exec(l);if(m)o[m[1]]=m[2]}console.log(JSON.stringify(o))})'
 			echo ',"pgStatements":'; "$CLI" exec "$(ctr postgres)" psql -U store -d store -At -c "SELECT coalesce(json_agg(t),'[]') FROM (SELECT left(regexp_replace(query, '\s+', ' ', 'g'), 120) AS query, calls, round(mean_exec_time::numeric, 4) AS mean_ms, round(total_exec_time::numeric, 1) AS total_ms, rows, shared_blks_hit, shared_blks_read FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 15) t"
-			echo ',"pgTables":'; "$CLI" exec "$(ctr postgres)" psql -U store -d store -At -c "SELECT json_agg(t) FROM (SELECT relname, seq_scan, seq_tup_read, idx_scan, n_tup_upd, n_tup_hot_upd, n_dead_tup FROM pg_stat_user_tables ORDER BY relname) t"
+			echo ',"pgTables":'; "$CLI" exec "$(ctr postgres)" psql -U store -d store -At -c "SELECT json_agg(t) FROM (SELECT relname, seq_scan, seq_tup_read, idx_scan, n_tup_upd, n_tup_hot_upd, n_dead_tup, heap_blks_read, heap_blks_hit FROM pg_stat_user_tables JOIN pg_statio_user_tables USING (relid, schemaname, relname) ORDER BY relname) t"
 			echo '}'
 		} > "$file"
 	else
@@ -266,43 +453,91 @@ post_run_stats() {
 	echo "$file"
 }
 
+# One trial of one target. Leaves the run record, the wrapper's summary, the conditions, the
+# verification, the console and (tier 2) the host samples, host conditions and cycle join in
+# results/raw, all named by target and stamp. Nothing is deleted.
 bench() {
-	local target="$1" other stamp
-	other=$([ "$target" = fpr ] && echo harper || echo fpr)
-	stop_target "$other"
-	for trial in $(seq 1 "${TRIALS:-1}"); do
+	local target="$1" stamp
+	# Targets share a budget (one podman pod slice, or bench-target.slice): none other may be resident.
+	for t in $(all_targets); do stop_target "$t"; done
+	select_variant "$target"
+	local trial=1
+	while [ "$trial" -le "${TRIALS:-1}" ]; do
 		stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-		say "trial $trial/$TRIALS for $target (budget: $([ "$target" = fpr ] && echo "$BUDGET" || echo 'single container'))"
+		say "trial $trial/$TRIALS for $target (tier $TIER, $SCALE, budget: $([ "$target" = fpr ] && echo "$BUDGET, memory $MEMORY_SPLIT" || echo 'single container'))"
 		restore "$target"
 		wait_for_idle
-		"$HERE/scripts/host-load.sh" "$RAW/host-$target-$stamp.txt" & local host_sampler=$!
+		local host_sampler="" samples=""
+		if [ "$(uname -s)" = Darwin ]; then "$HERE/scripts/host-load.sh" "$RAW/host-$target-$stamp.txt" & host_sampler=$!; fi
+		# Tier 2: environments/gcp/sample.sh around the trial, from before the cold start to after
+		# the last step (cycles per slice every 250 ms; cgroup CPU and memory, host CPU and
+		# maintenance events every second). A system unit, so it runs on the housekeeping CPUs.
+		if [ -n "${SAMPLE_SH:-}" ]; then
+			samples="$RAW/samples-$target-$stamp"
+			sudo systemd-run --collect --unit="arch-bench-sampler-$stamp" bash "$SAMPLE_SH" "$samples" >/dev/null
+			sleep 2 # perf attaches before the cold start
+		fi
 		cold_start "$target"
 		if [ "$target" = fpr ]; then
 			"$CLI" exec "$(ctr postgres)" psql -U store -d store -qAt -c "SELECT pg_stat_statements_reset()" -c "SELECT pg_stat_reset()" >/dev/null
 		fi
 		local cgroups="{" sep=""
-		for s in $(services_of "$target"); do cgroups="$cgroups$sep\"$s\":\"$("$CLI" inspect --format '{{.State.CgroupPath}}' "$(ctr "$s")")\""; sep=","; done
+		for s in $(services_of "$target"); do cgroups="$cgroups$sep\"$s\":\"$(cgroup_of "$(ctr "$s")")\""; sep=","; done
 		cgroups="$cgroups}"
 		local budget_cgroup=""
-		if [ "$target" = fpr ] && [ "$BUDGET" = shared ]; then budget_cgroup="/machine.slice/$BUDGET_CGROUP_PARENT"; fi
+		if [ "$target" = fpr ]; then budget_cgroup="$BUDGET_CGROUP"; fi
 		local conditions; conditions="$(conditions_json "$target" "$stamp")"
 		# The harness accounts the target's CPU itself from these cgroups (one per container).
 		local target_cgroups="" sep2=""
 		for s in $(services_of "$target"); do target_cgroups="$target_cgroups$sep2$s=$("$CLI" inspect --format '{{.Id}}' "$(ctr "$s")")"; sep2=","; done
-		compose run --rm -e TARGET="$target" -e CGROUPS="$cgroups" -e BUDGET_CGROUP="$budget_cgroup" \
-			-e CODE_COMMIT="$(git -C "$ECOMMERCE_STORE_DIR" rev-parse HEAD)" -e CODE_DIRTY="$([ -n "$(git -C "$ECOMMERCE_STORE_DIR" status --porcelain)" ] && echo 1 || echo 0)" \
+		local stats_url=""
+		if [ "$target" = fpr ]; then stats_url="http://app:3000/__stats"; fi
+		local harness_dirty=0; [ -n "$(git -C "$ECOMMERCE_STORE_DIR" status --porcelain)" ] && harness_dirty=1
+		# shellcheck disable=SC2086
+		compose run --rm -e TARGET="$target" -e TIER="$TIER" -e CGROUPS="$cgroups" -e BUDGET_CGROUP="$budget_cgroup" -e STATS_URL="$stats_url" \
+			-e CODE_COMMIT="$(target_commit "$target")" -e CODE_DIRTY="$(node -p "require('$conditions').code.target.dirty ? 1 : 0")" \
+			-e HARNESS_COMMIT="$(git -C "$ECOMMERCE_STORE_DIR" rev-parse HEAD)" -e HARNESS_DIRTY="$harness_dirty" \
 			-e CONDITIONS="/results/$(basename "$conditions")" -e RUN_CONDITIONS="$(cat "$conditions")" bench -- \
-			--url "$(url_in_network "$target")" --dataset "/work/dataset/$SCALE" --target-cgroups "$target_cgroups" \
-			--rates "${RATES:-100,200,400,600,800,1000,1200}" --duration "${DURATION:-15}" --warmup "${WARMUP:-10}" \
+			--url "$(url_in_network "$target")" --dataset "$HARNESS_DATASET" --target-cgroups "$target_cgroups" \
+			--rates "${RATES:-100,200,400,600,800,1000,1200}" --duration "$DURATION" \
 			--quote-share "${QUOTE_SHARE:-0.5}" --write-rate "${WRITE_RATE:-20}" \
-			--out /results --cold-ms "$COLD_MS" | tee "$RAW/console-$target-$stamp.txt"
-		kill "$host_sampler" 2>/dev/null || true
+			--out /results --cold-ms "$COLD_MS" ${BENCH_ARGS:-} | tee "$RAW/console-$target-$stamp.txt" || true
+		if [ -n "$host_sampler" ]; then kill "$host_sampler" 2>/dev/null || true; fi
+		local record; record="$(grep -oE 'run-[0-9TZ-]+\.json' "$RAW/console-$target-$stamp.txt" | tail -1 || true)"
+		local verdict=ok
+		fault() { if [ "$verdict" = ok ]; then verdict="$1"; else verdict="$verdict; $1"; fi; }
+		# Tier 2: ecommerce-store's cycle join (bench/cycles.mjs) adds gigacycles, effective clock and
+		# ops per gigacycle to every step of the record, as its own orchestrator does with SAMPLES_DIR.
+		# It runs before the sampler stops, so it can wait for perf to write past the last step. In
+		# the generator container: the record belongs to the user that container runs as.
+		if [ -n "$samples" ] && [ -n "$record" ]; then
+			compose run --rm --no-deps --entrypoint node -v "$samples:/samples:ro" bench \
+				bench/cycles.mjs --samples /samples --write "/results/$record" > "$RAW/cycles-$target-$stamp.txt" 2>&1 \
+				|| fault "cycle join failed"
+		fi
+		if [ -n "$samples" ]; then sudo systemctl stop "arch-bench-sampler-$stamp" || true; fi
 		post_run_stats "$target" "$stamp" >/dev/null
-		# The reference's run-level checks (DATA-004 is expected to fail on dev; --dev says so).
-		local record; record="$(grep -oE 'run-[0-9TZ-]+\.json' "$RAW/console-$target-$stamp.txt" | tail -1)"
-		(cd "$ECOMMERCE_STORE_DIR" && node scripts/verify-run-record.mjs --dev "$RAW/$record") > "$RAW/verify-$target-$stamp.txt" 2>&1 \
-			&& say "run record verified" || say "run record verification FAILED: $RAW/verify-$target-$stamp.txt"
+		if [ -z "$record" ]; then
+			fault "no run record"
+		else
+			# The reference's run-level checks (on dev, DATA-004 is expected to fail; --dev says so).
+			(cd "$ECOMMERCE_STORE_DIR" && node scripts/verify-run-record.mjs $([ "$SCALE" = dev ] && echo --dev) "$RAW/$record") > "$RAW/verify-$target-$stamp.txt" 2>&1 \
+				|| fault "verification failed"
+			# A live migration or pending maintenance during the trial voids it (environments/gcp).
+			if [ -n "$samples" ] && grep -qE ',(MIGRATE|TERMINATE)' "$samples/maintenance.log" 2>/dev/null; then
+				fault "host maintenance event"
+			fi
+		fi
+		# Tier 2: environments/gcp/conditions.sh after the trial: container state and image digests.
+		if [ -n "${CONDITIONS_SH:-}" ]; then
+			sudo bash "$CONDITIONS_SH" "$RAW/hostconditions-$target-$stamp" "$REPO" "$ECOMMERCE_STORE_DIR" >/dev/null 2>&1 || say "conditions.sh failed (recorded, not fatal)"
+		fi
 		if [ "$target" = fpr ]; then audit | tee -a "$RAW/console-$target-$stamp.txt"; fi
+		# Targets share bench-target.slice on tier 2: never leave one resident inside the next one's budget.
+		stop_target "$target"
+		say "trial $target $stamp: $verdict"
+		echo "trial: $target $stamp record=${record:-none} verdict=$verdict" | tee -a "$RAW/trials.log"
+		trial=$((trial + 1))
 	done
 }
 
@@ -327,7 +562,7 @@ diff_reference() {
 	restore fpr; restore harper
 	cold_start fpr; cold_start harper
 	node "$HERE/scripts/diff-reference.mjs" --a "http://localhost:$(port_of harper)" --b "http://localhost:$(port_of fpr)" \
-		--dataset "$DATASET_DIR" --out "$HERE/results/diff-reference-dataset-$DATASET_GENERATOR.json"
+		--dataset "$HARNESS_DATASET_HOST" --out "$HERE/results/diff-reference-dataset-$DATASET_GENERATOR.json"
 	stop_target harper
 }
 
@@ -347,18 +582,19 @@ coherence() {
 audit() {
 	say "coherence audit: cached responses vs responses computed from Postgres alone"
 	sleep 2 # writes have stopped; FRESH_MS is 1000
-	node "$HERE/scripts/audit-coherence.mjs" --url "http://localhost:$(port_of fpr)" --dataset "$DATASET_DIR"
+	node "$HERE/scripts/audit-coherence.mjs" --url "http://localhost:$(port_of fpr)" --dataset "$HARNESS_DATASET_HOST"
 }
 
 cmd="${1:-}"; shift || true
 case "$cmd" in
 	setup) setup ;;
+	build) setup; build_target "${1:?target}" ;;
 	load) setup; load "${1:?target}" ;;
 	conformance) setup; conformance "${1:?target}" ;;
 	diff) setup; diff_reference ;;
 	bench) setup; TRIALS="${TRIALS:-1}"; bench "${1:?target}" ;;
 	audit) setup; audit ;;
 	coherence) setup; coherence "${1:?target}" ;;
-	stop) setup; stop_target fpr; stop_target harper ;;
-	*) sed -n '2,20p' "$0"; exit 1 ;;
+	stop) setup; for t in $(all_targets); do stop_target "$t"; done ;;
+	*) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 1 ;;
 esac

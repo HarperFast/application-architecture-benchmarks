@@ -23,6 +23,10 @@ services:
     extends:
       file: ${ECOMMERCE_STORE_DIR:?run scripts/run.sh setup}/containers/compose.yaml
       service: harper
+    # This project's own image name, tagged per build as ecommerce-store tags its own
+    # (TARGET_IMAGE_TAG: `checkout`, or the commit of another build), so a build here never
+    # replaces the image ecommerce-store's own orchestrator uses on the same machine.
+    image: aab-harper-reference:${TARGET_IMAGE_TAG:-checkout}
     # Published for conformance and diff runs from the host only; the measured generator uses
     # the bridge. Distinct from the 9925/9926 another project on this machine already uses.
     ports: !override
@@ -30,9 +34,9 @@ services:
     profiles: [harper]
 
   harper-loader:
-    image: docker.io/library/node:24.21.0-slim
+    image: docker.io/library/node:24.21.0-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20
     working_dir: /work
-    command: ["node", "scripts/load-dataset.mjs", "--scale", "dev", "--url", "http://harper:9925"]
+    command: ["node", "scripts/load-dataset.mjs", "--scale", "${SCALE:-dev}", "--url", "http://harper:9925"]
     environment:
       HDB_ADMIN_USERNAME: ${HDB_ADMIN_USERNAME:-benchadmin}
       HDB_ADMIN_PASSWORD: ${HDB_ADMIN_PASSWORD}
@@ -42,7 +46,7 @@ services:
     profiles: [tools]
 
   bench:
-    image: docker.io/library/node:24.21.0-slim
+    image: docker.io/library/node:24.21.0-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20
     working_dir: /work
     entrypoint: ["node", "/cmp/bench-wrapper.mjs"]
     environment:
