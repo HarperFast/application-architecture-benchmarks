@@ -2,7 +2,7 @@
 
 The first tier-2 session is exploratory: step 0 for tier 2, not a publishable result. It runs both targets, and optionally the reference's unbatched build, against the `bench` dataset on the GCP host of [`environments/gcp`](../../environments/gcp/README.md), interleaved in one session, with every trial restored, cold-started on a dropped page cache, warmed up identically, sampled for cycles, and verified.
 
-The host is set up, qualified and torn down exactly as `environments/gcp/README.md` says; this runbook does not repeat it, and points to its section for each of those steps. That README is on `origin/gcp-tier2` (PR #5) until it merges.
+The host is set up, qualified and torn down exactly as `environments/gcp/README.md` says; this runbook does not repeat it, and points to its section for each of those steps.
 
 What is tested and what is not is listed at the end. Nothing in the tier-2 path that needs the Linux host (slices, Docker's cgroup layout, `perf`, `sample.sh`, `conditions.sh`, `drop_caches` on the host) has run yet.
 
@@ -11,7 +11,7 @@ What is tested and what is not is listed at the end. Nothing in the tier-2 path 
 | Input | Value |
 |-|-|
 | ecommerce-store | `main` at `f47978b` (where #4 merged), dataset generator 0.5.0 |
-| application-architecture-benchmarks | the commit of this runbook on `fastify-postgres-redis` (PR #6) |
+| application-architecture-benchmarks | the commit of this runbook: `main` from `2529e09`, where `environments/gcp` (#5) and this comparison (#6) merged, or the session's own branch |
 | Machine | `c4-standard-16-lssd`, ALL_CORE_MAX, PMU, SMT off (`environments/gcp` "Instance") |
 | Ladder | `25,50,100,200,400,800,1600` rps, 60 s steps; 50% quotes, 20 writes/s |
 | Warm-up | the harness's fixed `bench` warm-up, 120,000 requests at 100 rps (`WARMUP` in ecommerce-store `packages/spec`), identical for every target |
@@ -75,7 +75,7 @@ Rounds alternate the order (`harper fpr`, then `fpr harper`, ...). For each tria
 3. Starts `sample.sh` as its own system unit (`arch-bench-sampler-<stamp>`, on the housekeeping CPUs), writing to `results/raw/samples-<target>-<stamp>/`.
 4. Drops the page cache (`sync; echo 3 | sudo tee /proc/sys/vm/drop_caches`) and starts every process of the target at once; the reference's outside probe times the first successful product response.
 5. Runs the harness from the generator container, unmodified: the fixed warm-up, then the ladder, accounting the target's CPU, memory, page cache and disk reads per container. For `fpr`, it also polls `/__stats` every 2 s for the cache and buffer counters per step.
-6. Joins the samples' cycles into the run record with ecommerce-store's `bench/cycles.mjs --write` (the join its own orchestrator runs with `SAMPLES_DIR`), stops the sampler, runs ecommerce-store's `verify-run-record.mjs` (which on tier 2 also fails a step without cycles, a target outside the slice or without its own memory limit, and on `bench` steps under 60 s, non-Poisson arrivals or base images not pinned by digest), checks `maintenance.log` for a migration or termination notice, runs `conditions.sh` into `results/raw/hostconditions-<target>-<stamp>/`, and for `fpr` the coherence audit.
+6. Joins the samples' cycles into the run record with ecommerce-store's `bench/cycles.mjs --write` (the join its own orchestrator runs with `SAMPLES_DIR`), stops the sampler, runs ecommerce-store's `verify-run-record.mjs` (which on tier 2 also fails a step without cycles, a target outside the slice or without its own memory limit, and on `bench` steps under 60 s, non-Poisson arrivals or base images not pinned by digest), checks `maintenance.log` for a migration or termination notice, runs `conditions.sh` into `results/raw/hostconditions-<target>-<stamp>/`, and for `fpr` the coherence audit. For the reference it also records, from inside the running target, the worker heap and RocksDB block-cache sizes Harper resolved from its 2 GiB container limit, with the inputs and the source lines of the rules it read (`results/raw/harper-memory-<target>-<stamp>.json`); the report prints them per trial.
 7. Stops the target.
 
 A trial that fails verification or the cycle join, saw a maintenance event, or had another container in the target slice is set aside and re-run (up to `MAX_ATTEMPTS` attempts, default 3, and only while `SESSION_MINUTES` allows). The set-aside attempt stays on disk and in the session log; nothing is deleted.

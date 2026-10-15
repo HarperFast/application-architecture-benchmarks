@@ -69,7 +69,17 @@ const all = files.map((file) => {
 		const other = lines.map((l) => Number(l[2])).filter((v) => Number.isFinite(v) && v <= 12).sort((a, b) => a - b);
 		host = { samples: other.length, discarded: lines.length - other.length, nonVmBusyCoresMedian: other[Math.floor(other.length / 2)] ?? null, nonVmBusyCoresMax: other.at(-1) ?? null };
 	} catch {}
-	return { file: basename(file), config, summary: s, host, cycles, contended: s.steps.some((step) => contended(step)) };
+	// The verifier's DATA-004 memory basis, and (Harper) the heap and block-cache sizes the target
+	// resolved from its memory limit (scripts/run.sh harper_memory).
+	let memoryBasis = null;
+	try {
+		memoryBasis = /DATA-004 memory basis: (.*)/.exec(readFileSync(join(rawDir, `verify-${s.target}-${s.conditions.stamp}.txt`), 'utf8'))?.[1] ?? 'not printed';
+	} catch {}
+	let harperMemory = null;
+	try {
+		harperMemory = JSON.parse(readFileSync(join(rawDir, `harper-memory-${s.target}-${s.conditions.stamp}.json`), 'utf8'));
+	} catch {}
+	return { file: basename(file), config, summary: s, host, cycles, memoryBasis, harperMemory, contended: s.steps.some((step) => contended(step)) };
 });
 const cycleStep = (trial, step) => trial.cycles?.steps?.find((c) => c.label === step.label) ?? null;
 const cyclesOf = (trial, step) => {
@@ -122,6 +132,8 @@ for (const config of configs) {
 			file: t.file,
 			stamp: t.summary.conditions.stamp,
 			coldStartFirst200Ms: t.summary.conditions.lifecycle?.coldStartFirst200Ms ?? null,
+			memoryBasis: t.memoryBasis,
+			harperMemory: t.harperMemory ? { inputs: t.harperMemory.inputs, configured: t.harperMemory.configured, resolved: t.harperMemory.resolved } : null,
 			host: t.host,
 			contention: t.summary.conditions.contentionAtStart?.busyOtherContainers ?? null,
 			steps: t.summary.steps.map((s) => ({
@@ -153,6 +165,13 @@ for (const config of configs) {
 
 	out.push(`### ${config}`, '');
 	out.push(`${group.length} trial(s), ${group.filter((t) => t.contended).length} with at least one contended step (those steps excluded; n = clean observations per row). Cold start to first 200: ${fmt(group.map((t) => t.summary.conditions.lifecycle?.coldStartFirst200Ms), 0)} ms. Contention at start: ${group.map((t) => t.summary.conditions.contentionAtStart?.busyOtherContainers || 'none').join(', ')}. Host (macOS) cores busy outside the VM, median per trial: ${group.map((t) => t.host?.nonVmBusyCoresMedian ?? '-').join(', ')}.`, '');
+	out.push('Per trial:', '');
+	for (const t of group) {
+		const r = t.harperMemory?.resolved;
+		const sizing = r ? `; Harper resolved from ${(t.harperMemory.inputs.constrainedMemoryBytes / MiB).toFixed(0)} MiB constrained memory: ${r.workerMaxOldGenerationMiB} MiB old space per worker, ${(r.rocksBlockCacheBytes / MiB).toFixed(0)} MiB block cache, ${(r.rocksWriteBufferManagerBytes / MiB).toFixed(0)} MiB write-buffer manager` : '';
+		out.push(`- ${t.summary.conditions.stamp}: DATA-004 memory basis: ${t.memoryBasis ?? 'no verifier output'}${sizing}.`);
+	}
+	out.push('');
 	const header = ['offered rps', 'n', 'achieved rps', 'shed', 'p50 ms', 'p99 ms', 'quote p99', 'product p99', 'product hit %', ...components.map((c) => `${c} cores`), 'target cores', 'target CPU ms/req', 'target memory MiB', 'disk reads MiB', 'uncharged VM cores', 'gen CPU'];
 	out.push(`| ${header.join(' | ')} |`, `|${header.map(() => '-').join('|')}|`);
 	const rates = first.steps.map((s) => s.offeredRate);

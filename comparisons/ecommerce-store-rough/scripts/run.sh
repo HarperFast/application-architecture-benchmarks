@@ -458,6 +458,49 @@ post_run_stats() {
 	echo "$file"
 }
 
+# Harper sizes each worker's heap and its RocksDB block cache from process.constrainedMemory()
+# unless threads.maxHeapMemory and storage.rocks.blockCacheSize are configured, and the reference
+# configures neither (environments/gcp/ecommerce-store-gaps.md, "Open"). Record what they resolved
+# to in this trial, from inside the running target after the ladder: the inputs, any configured
+# overrides, the sizes Harper's rules give, and the source lines those rules were read from, so a
+# Harper release that changes them shows in the record.
+HARPER_MEMORY_JS='
+import { readFileSync } from "node:fs";
+import { totalmem } from "node:os";
+const MB = 2 ** 20;
+const dist = "/usr/local/lib/node_modules/harper/dist";
+const rules = (file, re) => { try { return readFileSync(`${dist}/${file}`, "utf8").split("\n").map((l, i) => [i + 1, l.trim()]).filter(([, l]) => re.test(l)).map(([n, l]) => `${file}:${n}: ${l}`); } catch (e) { return [`${file}: ${e.message}`]; } };
+const auth = "Basic " + Buffer.from(`${process.env.HDB_ADMIN_USERNAME}:${process.env.HDB_ADMIN_PASSWORD}`).toString("base64");
+const op = async (body) => { try { const r = await fetch("http://localhost:9925/", { method: "POST", headers: { "content-type": "application/json", authorization: auth }, body: JSON.stringify(body) }); return await r.json(); } catch (e) { return { error: e.message }; } };
+const config = await op({ operation: "get_configuration" });
+const info = await op({ operation: "system_information", attributes: ["threads", "memory"] });
+const constrained = process.constrainedMemory?.();
+const total = totalmem();
+const threads = config.threads?.count ?? null;
+const heap = config.threads?.maxHeapMemory ?? null;
+const cache = config.storage?.rocks?.blockCacheSize ?? null;
+const wbm = config.storage?.rocks?.writeBufferManagerSize ?? null;
+// As Harper 5.3.2 computes them: server/threads/manageThreads.js startWorker (old space per worker,
+// "||" on constrainedMemory) and utility/rocksMemoryConfig.js via resources/databases.js ("??").
+const heapMiB = heap ?? Math.max(Math.floor(Math.min(constrained || total, total, 20000 * MB) / MB / (10 + (threads || 1) / 4)), 512);
+const cacheBytes = Math.floor(typeof cache === "number" && cache > 0 ? cache : Math.min(constrained ?? Infinity, total) * 0.25);
+console.log(JSON.stringify({
+	harperVersion: process.env.HARPER_VERSION,
+	inputs: { constrainedMemoryBytes: constrained, totalmemBytes: total, cgroupMemoryMax: readFileSync("/sys/fs/cgroup/memory.max", "utf8").trim(), threads },
+	configured: { "threads.maxHeapMemory": heap, "storage.rocks.blockCacheSize": cache, "storage.rocks.writeBufferManagerSize": wbm },
+	resolved: {
+		workerMaxOldGenerationMiB: heapMiB, workerMaxYoungGenerationMiB: Math.min(Math.max(heapMiB >> 6, 16), 64),
+		rocksBlockCacheBytes: cacheBytes, rocksWriteBufferManagerBytes: Math.floor(typeof wbm === "number" ? wbm : cacheBytes / 3),
+	},
+	reported: { threads: info.threads ?? info, memory: info.memory ?? null },
+	rules: [...rules("server/threads/manageThreads.js", /availableMemory|maxOldMemory =|maxYoungMemory =|THREADS_MAXHEAPMEMORY\)/), ...rules("utility/rocksMemoryConfig.js", /availableMemory \* 0\.25|blockCacheSize \/ 3/), ...rules("resources/databases.js", /availableMemory: /)],
+}, null, 2));
+'
+harper_memory() {
+	local file="$RAW/harper-memory-$1-$2.json"
+	"$CLI" exec "$(ctr harper)" node --input-type=module -e "$HARPER_MEMORY_JS" > "$file" 2>&1 || say "Harper memory sizing not recorded (not fatal): $file"
+}
+
 # One trial of one target. Leaves the run record, the wrapper's summary, the conditions, the
 # verification, the console and (tier 2) the host samples, host conditions and cycle join in
 # results/raw, all named by target and stamp. Nothing is deleted.
@@ -522,6 +565,7 @@ bench() {
 		fi
 		if [ -n "$samples" ]; then sudo systemctl stop "arch-bench-sampler-$stamp" || true; fi
 		post_run_stats "$target" "$stamp" >/dev/null
+		if [ "$target" != fpr ]; then harper_memory "$target" "$stamp"; fi
 		if [ -z "$record" ]; then
 			fault "no run record"
 		else
