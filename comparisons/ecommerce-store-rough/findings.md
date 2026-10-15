@@ -2,7 +2,7 @@
 
 **Status:** rough benchmark, step 0 of the [procedure](../../README.md#0-rough-benchmark-first). Tier 1 (containers in a podman VM on a macOS laptop). Dataset `dev`, which fits in memory and is never a benchmark target. **Nothing here is a result, and nothing here may be published or quoted as one.** It records where a first measurement lands, how large the effect looks, which traps appeared, and how the real comparison should be framed.
 
-Dates: 2026-10-12, re-run 2026-10-14. Contract, harness and reference: ecommerce-store branch `harper-5.3` at `5c32151` (SPEC.md `0.2.0-draft`, dataset generator `0.5.0`, seed `harper-ecommerce-store-v1`, Harper 5.3.2). Generator 0.5.0 changes only the carts and replaces the access distribution with a scrambled discrete Zipf; the harness at `5c32151` reaches every key, plans its writes from the read distribution, records page cache and disk reads per step, and the orchestration drops the page cache before every cold start. The first session, on `1f4a350` and generator 0.4.0, is kept and marked superseded ([tables](results/session-20261012T193328Z.md)). Runs taken before that with ecommerce-store `main`'s harness are superseded too: that harness dispatched open-loop arrivals one interval late, counted completions after the step window, could not account a containerized target's CPU, and aimed most writes at products the reads never touch. They are mentioned below only where they taught something.
+Dates: 2026-10-12, re-run 2026-10-14; tier-2 orchestration 2026-10-15, pinned to ecommerce-store `harper-5.3` at `f7a688b` ([Tier-2 readiness](#tier-2-readiness)). Contract, harness and reference for the measured sessions: ecommerce-store branch `harper-5.3` at `5c32151` (SPEC.md `0.2.0-draft`, dataset generator `0.5.0`, seed `harper-ecommerce-store-v1`, Harper 5.3.2). Generator 0.5.0 changes only the carts and replaces the access distribution with a scrambled discrete Zipf; the harness at `5c32151` reaches every key, plans its writes from the read distribution, records page cache and disk reads per step, and the orchestration drops the page cache before every cold start. The first session, on `1f4a350` and generator 0.4.0, is kept and marked superseded ([tables](results/session-20261012T193328Z.md)). Runs taken before that with ecommerce-store `main`'s harness are superseded too: that harness dispatched open-loop arrivals one interval late, counted completions after the step window, could not account a containerized target's CPU, and aimed most writes at products the reads never touch. They are mentioned below only where they taught something.
 
 ## Where it lands
 
@@ -28,7 +28,7 @@ On `dev` generator 0.5.0, at 2 CPU / 2 GiB per target, three alternating trials 
 - **The reference's tail latency moved with the write stream.** One diagnostic trial each, same ladder ([tables](results/session-diagnostics-20261014T212525Z.md)): with writes off, the reference's p99 was 6.5 and 6.2 ms at 400 and 800 rps; with writes on and no page-cache drop, 94 and 49 ms. The stack's p99 stayed at 4 to 11 ms in both. On `dev`, generator 0.5.0 spreads reads and writes across more of the hot products: the hottest product's share of draws falls from about 32% under the 0.4.0 power law to 7.8%. The likely cause is more of the reference's cached views being invalidated and refilled at once; that is a hypothesis for the Harper side to confirm.
 - **Shedding moved slightly earlier for the stack** (5,600 → 4,800 rps), with its CPU per request unchanged. The generator flags its own dispatch lag in one trial at 5,600 rps and in two trials at each step from 6,400, so those steps sit near the generator's ceiling.
 
-The quote-path gap is not yet an architecture finding. The reference reads each cart line's variant and then its product sequentially, and each inventory row individually; the stack batches every wave into one round trip and overlaps independent waves. That is an implementation choice the reference could adopt. Per the methodology, a separated stack beating Harper is published as measured and investigated; the first investigation is to give the reference the same batching and re-measure, at `bench` scale, on a Linux host.
+The quote-path gap is not yet an architecture finding. The reference reads each cart line's variant and then its product sequentially, and each inventory row individually; the stack batches every wave into one round trip and overlaps independent waves. That is an implementation choice the reference could adopt. Per the methodology, a separated stack beating Harper is published as measured and investigated; the first investigation is to give the reference the same batching and re-measure, at `bench` scale, on a Linux host. ecommerce-store `dd3a5f5` has since batched the reference's quote reads; every session here predates it, and the tier-2 session can run both builds (`harper` and `harper-unbatched`).
 
 ## What was built
 
@@ -50,7 +50,17 @@ The quote-path gap is not yet an architecture finding. The reference reads each 
 
 ## Resource budget and split
 
-Both targets get 2 CPU / 2 GiB. The reference spends it in one container with 2 Harper threads. The stack spends it across three containers; memory is split per container (app 640 MiB, Postgres 1024 MiB, Redis 384 MiB). CPU was enforced two ways:
+Both targets get 2 CPU / 2 GiB. The reference spends it in one container with 2 Harper threads. The stack spends it across three containers. Every `dev` session above split memory per container as app 640 MiB, Postgres 1024 MiB, Redis 384 MiB. For tier 2 the split is app 512, Postgres 1,280, Redis 256 MiB, and every process is sized from its own container's limit explicitly, because a container cannot see its slice's limits (the tier-2 qualification measured this) and on a Podman VM it sees the VM:
+
+| Container | Limit | Sizing |
+|-|-|-|
+| app | 512 MiB | 2 workers, Node heap capped at 160 MiB per process (primary and each worker); measured peak about 320 MiB on `dev`, page cache of the Node binary and modules included |
+| postgres | 1,280 MiB | `shared_buffers` 320 MB (a quarter), `effective_cache_size` 960 MB (three quarters), `work_mem` 4 MB at 40 connections at most, `maintenance_work_mem` 64 MB (the loader raises its own) |
+| redis | 256 MiB | `maxmemory` 153 MB (about 60%), `allkeys-lru`, no persistence |
+
+Postgres gets the largest share because at `bench` scale its working set is the one larger than memory, and every quote reads inventory and promotions from it whatever Redis holds; Redis holds the hot head of a skewed key distribution. `scripts/run.sh` derives the sizing from whatever split it is given and records both in every run. The 512 / 1,280 / 256 split has run only in the local test of the tier-2 path, not in a measured session.
+
+CPU was enforced two ways on tier 1:
 
 - **shared** (primary): all three containers under one cgroup slice limited to 2 CPU / 2 GiB, which is the most literal reading of "summed across all of its processes" and matches how the reference's threads share one container quota. A podman pod created with `--share none --infra=false --cpus 2 --memory 2g` provides the slice without changing the podman machine; the services name it as `cgroup_parent` and keep their own network namespaces. This matches the tier-2 placement ecommerce-store `harper-5.3` sketches (`compose.tier2.yaml`, a target slice).
 - **split** (sensitivity): per-container CFS quotas of app 1.25, Postgres 0.5, Redis 0.25 CPU, from the measured shares under load.
@@ -90,7 +100,7 @@ In short (reasons in the implementation README):
 9. **Low-load latency is not a floor.** On `main`'s harness the stack's p50 was 7.8 ms at 200 rps against 3 ms at 1,600, partly the VM's idle and wake-up behaviour; on the corrected harness the stack's p50 is 2.7 ms at 400 rps and 2.6 ms at 2,000.
 10. **Harper 5.2.12 returned 500s under concurrent cold fills** (`Database closed during transaction ... for ProductView`, 26 to 35 of 40,000 aggregates); none on 5.3.2.
 11. **A restore warms the page cache for free.** Restoring a snapshot from a helper container leaves the target's files in the VM's page cache, charged to no target, so the first runs measured cold start and memory on data the target never read itself. Both targets now start after the cache is dropped, which raised cold start (stack 0.95 → 1.15 s, reference 1.59 → 2.07 s, one no-drop trial each against the session medians) and moved the page cache into the targets' memory figures.
-12. **Disk is the tier-1 constraint for `bench`.** Every restore grows the Podman VM's disk image, which returns freed blocks only to `fstrim`, and the raw run records retained for every sample come to 3.6 GB for these two sessions. See [`bench` scale](#bench-scale).
+12. **Disk is the tier-1 constraint for `bench`.** Every restore grows the Podman VM's disk image, which returns freed blocks only to `fstrim`, and the raw run records retained for every sample come to 3.6 GB for these two sessions. `bench` is never run locally; see [Tier-2 readiness](#tier-2-readiness).
 
 ## Harness gaps for multi-process targets
 
@@ -120,30 +130,23 @@ Everything in SPEC.md was implementable on Fastify + Postgres + Redis. These are
 ## Advantages each side has
 
 - **The stack** batches each quote wave into one round trip and overlaps independent waves; serves a cached aggregate as stored bytes; and, on this machine, gets uncharged kernel CPU for its inter-container traffic.
+- **The stack's Redis holds the whole `dev` dataset.** After each `dev` trial its entity cache hit rate was 99.3 to 99.9% with no evictions, and 84% of product aggregates were served from Redis as pre-serialized bytes, so on `dev` Postgres served little beyond inventory, promotions and writes. That is an advantage `dev` gives the stack and `bench` should not: at `bench` scale Redis has 153 MB against about 6 GB of tables, holds only the head of the access distribution, and evicts. Nothing preloads it: the loader flushes it, it has no persistence, every trial starts it empty, and only the harness's warm-up fills it, as it fills the reference's caches. To show how much each layer served, the stack exposes cumulative counters at `/__stats`, which the wrapper polls every 2 s (a few reads inside the target's budget) and joins to each step: entity and aggregate cache hit rates, Redis keyspace hits, misses and evictions, Postgres shared-buffer hits and blocks read. The harness's per-container disk reads separate a Postgres buffer miss served from the page cache from one that went to disk.
 - **The reference** pays no network hop, no protocol encode or decode and no second copy of hot data for any read; its cache is in-process and invalidation is a local call. The stack pays a bridge round trip and encoding on both sides for every Redis and Postgres access, a Postgres commit with fsync plus a Redis round trip per write, and three processes' memory.
 - **Durability:** fsync on for both by default; commit-acknowledgement semantics of the reference's write surface were not examined and should be before tier 2.
 
-## `bench` scale
+## Tier-2 readiness
 
-Not run. It does not fit this machine's disk with the margin required (at least 10 GiB free after the Postgres volume and a snapshot): host free space was 11 to 18 GiB during this work, and the Podman VM's disk image (40 GB) is already fully allocated, so `fstrim` would return almost nothing.
+Not run yet; `bench` is never run locally. The orchestration for one tier-2 session follows ecommerce-store `harper-5.3` at `f7a688b`, whose harness fixes the warm-up per scale, runs 60 s steps with seeded Poisson arrivals on `bench`, joins the host's cycle samples to each step (`bench/cycles.mjs`), builds the reference from another commit (`TARGET_REF`), and verifies tier-2 placement, cycles and pinned base images. It is in place and tested on `dev` with tier-1 placement: [runbook-tier2.md](runbook-tier2.md) is the procedure, and it lists what only the Linux host can test.
 
-Estimate for the stack, scaling each table's measured `dev` size per row (heap, indexes and TOAST) by the `bench` row counts in `MANIFEST.json`:
-
-| Table | `dev` bytes per row | `bench` rows | Estimated size |
-|-|-|-|-|
-| inventory | 124 | 31,281,273 | 3.9 GB |
-| variant | 195 | 6,570,143 | 1.3 GB |
-| product | 291 | 2,000,000 | 0.6 GB |
-| cart | 352 | 300,000 | 0.1 GB |
-| customer | 131 | 500,000 | 0.07 GB |
-
-About 6 GB of tables and indexes, plus up to 1 GB of WAL (`max_wal_size`) during the load, so the volume needs about 7 GB and the compressed snapshot perhaps 2 GB: 9 GB in all, so about 19 GiB free before starting. That is roughly six times the Postgres container's 1 GiB, so `DATA-004` would hold for the stack. The loader already verifies and streams the gzipped `bench` files; nothing else in the stack needs to change.
-
-Memory behaviour is the open decision at `bench` scale. The reference did not fill its 2 GiB within 10 minutes at 100 rps (87% and still rising, measured separately on ecommerce-store `harper-5.3`), so the warm-up length is an open decision; record memory per step for both targets (the harness now does) rather than picking one here.
+- **Placement.** [`compose.tier2.yaml`](compose.tier2.yaml) puts every target container, of either target, in `bench-target.slice` (CPUs 2-3, `MemoryMax=2G`) with no CPU quota, and the generator and loaders in `bench-generator.slice`, as ecommerce-store's own override does for the reference. Memory limits stay per container (above).
+- **Restore.** Each target's volume is archived once per session after seeding, with a clean shutdown first. Before every trial the volume is emptied and the archive extracted into it, the host's page cache is dropped, and every process of the target starts at once. Redis has no persistence, so it starts empty in every trial.
+- **Loading `bench`.** The loader verifies every file against `MANIFEST.json` and streams the gzipped tables into `COPY`; locally on `bench`, without loading, verification took 6 s and encoding 45 s. The tables come to about 6 GB (inventory 3.9, variant 1.3, product 0.6, cart 0.1, customer 0.07, scaled from `dev` bytes per row), so the volume needs about 7 GB and its uncompressed snapshot as much again. The load itself, Postgres writing on two cores in its 1,280 MiB container, is estimated at 10 to 20 minutes and is untested.
+- **Session.** [`scripts/session.sh`](scripts/session.sh) alternates `harper` and `fpr` (and optionally the reference's unbatched build, `harper-unbatched`, built from `dd3a5f5^` with ecommerce-store's own build variables) round by round, with the harness's fixed `bench` warm-up and 60 s steps. Each trial runs environments/gcp's `sample.sh` around it, joins its cycles into the run record with ecommerce-store's `bench/cycles.mjs`, runs `verify-run-record.mjs`, and is set aside and re-run if verification, the cycle join or a maintenance event fails it. Every raw record is kept.
+- **DATA-004's memory test under a per-container split.** `verify-run-record.mjs` requires the target's summed memory peaks to reach 90% of its budget on `bench`. With per-container limits, Postgres can be at its 1,280 MiB with a working set far beyond memory while the app (about 320 MiB of 512) and Redis (about 200 of 256) keep the sum near 1,800 MiB, 88%. The test would then fail a stack whose working set does not fit. `MEMORY_SPLIT=slice` removes the per-container limits so the slice's 2 GiB is the only one; it is a sensitivity, not the default. The verifier could instead judge each container against its own limit.
 
 ## What the real comparison should look like
 
-1. Tier 2, `bench` dataset. `dev` measures HTTP, serialization and in-memory lookups; DATA-004 requires a working set beyond memory, where Postgres I/O, cache hit rates and the ranking can all change. The stack's loader already streams the gzipped `bench` files.
+1. Tier 2, `bench` dataset. `dev` measures HTTP, serialization and in-memory lookups; DATA-004 requires a working set beyond memory, where Postgres I/O, cache hit rates and the ranking can all change. The first tier-2 session is ready to run ([runbook](runbook-tier2.md)); it is exploratory, step 0 for tier 2.
 2. Each target's budget as one parent cgroup, kernel time outside every cgroup measured and accounted, the static split as a stated sensitivity.
 3. A generator that is not the bottleneck at the stack's knee, validated against the current one at low rates.
 4. Both implementations reviewed first, steelman and adversarial, including giving the reference's quote path the same batching, so the comparison measures architecture rather than one implementation's read pattern.
