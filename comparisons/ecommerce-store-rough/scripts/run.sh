@@ -246,7 +246,11 @@ select_variant() {
 
 build_target() {
 	select_variant "$1"
-	if [ "$1" = fpr ]; then compose build app; else compose --profile harper build harper; fi
+	# Docker's Compose builds through Buildx Bake, which refuses a Dockerfile outside both the build
+	# context and this compose project's directory without an fs entitlement Compose cannot pass:
+	# harper-unbatched builds .targets/<commit> with the checkout's containers/Dockerfile. Podman's
+	# builder has no such check. Seen first on the tier-2 host (Compose 5.6.0, Buildx 0.38.0).
+	if [ "$1" = fpr ]; then compose build app; else BUILDX_BAKE_ENTITLEMENTS_FS=0 compose --profile harper build harper; fi
 }
 
 stop_target() {
