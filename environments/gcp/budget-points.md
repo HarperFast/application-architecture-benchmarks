@@ -40,7 +40,7 @@ Boot disk and address: 50 GiB of Hyperdisk Balanced at $0.08/GiB-month and an ex
 | 6–9 | `bench.slice/bench-generator.slice` | The generator, 4 GiB; identical to 2/2 |
 | 10–11 | none | Idle during trials; the clock probe's all-busy phase loads them |
 
-**Generator share.** `bench/run.mjs` is single-threaded, so its headroom is one core plus room for garbage collection and libuv threads. The generator CPU recorded so far, all on tier 1 and `dev` ([session tables](../../comparisons/ecommerce-store-rough/results/session-20261014T204435Z.md)), was 0.07–0.17 cores at 400–2,400 rps, at most 0.47 at 8,000 rps, and its dispatch lag was flagged from about 5,600 rps ([findings](../../comparisons/ecommerce-store-rough/findings.md#measurement-traps), trap 4). Verification fails a step above 0.8 of a core. `bench` rates are far lower: the reference saturated near 133 rps at 2/2 on tier 1 from a dropped cache. Four cores is several times what one thread can use, and more would not raise the single-thread ceiling. Keeping it at four makes the generator identical at both points. Its tier-2 figures from the running 2/2 session should confirm this.
+**Generator share.** `bench/run.mjs` is single-threaded, so its headroom is one core plus room for garbage collection and libuv threads. The generator CPU recorded so far, all on tier 1 and `dev` ([session tables](../../comparisons/ecommerce-store-rough/results/session-20261014T204435Z.md)), was 0.07–0.17 cores at 400–2,400 rps, at most 0.47 at 8,000 rps, and its dispatch lag was flagged from about 5,600 rps ([findings](../../comparisons/ecommerce-store-rough/findings.md#measurement-traps), trap 4). Verification fails a step above 0.8 of a core. `bench` rates are far lower: the reference saturated near 133 rps at 2/2 on tier 1 from a dropped cache. Four cores leave three spare beyond the one its thread can use, and more cores would not raise its single-thread ceiling. Keeping four makes the generator identical at both points. Its tier-2 figures from the running 2/2 session should confirm this.
 
 **OS share.** Two cores, as at 2/2. `sample.sh` records host-wide CPU, so the 2/2 session shows whether CPUs 0–1 are busy. If they are, CPUs 10–11 join them (`HOUSEKEEPING_CPUS=0-1,10-11`), recorded with the run.
 
@@ -95,7 +95,7 @@ Yes, by less:
 | Harper | 6.0 GB (5.6 GiB), measured | 2.8 × 2 GiB | 1.4 × 4 GiB |
 | Postgres | 6–7 GB (5.6–6.5 GiB), estimated | 4.5–5.2 × 1,280 MiB | 2.2–2.6 × 2,560 MiB |
 
-Memory left for page cache is smaller than the budget. For Harper at 4/4, about 2.2 GiB of page cache (after its estimated 1.8 GiB of anonymous memory) faces 5.6 GiB on disk, so the target should keep reading.
+Page cache gets only part of the budget. For Harper at 4/4, about 2.2 GiB of page cache (after an estimated 1.8 GiB of anonymous memory) faces 5.6 GiB on disk, so the target should keep reading.
 
 ### How long the cache takes to fill
 
@@ -109,7 +109,7 @@ Memory left for page cache is smaller than the budget. For Harper at 4/4, about 
 
 ### The warm-up has to be keyed on the budget point
 
-`WARMUP` in ecommerce-store [`packages/spec/src/workload.ts`](https://github.com/HarperFast/ecommerce-store/blob/f47978bfc956f859aa2a0bc417a77ea50e12b25e/packages/spec/src/workload.ts#L140-L154) is keyed on dataset scale alone. `bench/run.mjs` picks it from the manifest's scale, and `scripts/verify-run-record.mjs` fails any other value. A second point needs a warm-up keyed on **(scale, budget point)**: the same volume and rate for every target at a point, and different between points. A higher rate keeps it short; it must be a rate every target sustains from a dropped cache without shedding, because a shed warm-up request warms nothing.
+`WARMUP` in ecommerce-store [`packages/spec/src/workload.ts`](https://github.com/HarperFast/ecommerce-store/blob/f47978bfc956f859aa2a0bc417a77ea50e12b25e/packages/spec/src/workload.ts#L140-L154) is keyed on dataset scale alone. `bench/run.mjs` picks it from the manifest's scale, and `scripts/verify-run-record.mjs` fails any other value. A second point needs a warm-up keyed on **(scale, budget point)**: the same volume and rate for every target at a point, free to differ between points. A higher rate keeps it short; it must be a rate every target sustains from a dropped cache without shedding, because a shed warm-up request warms nothing.
 
 The ecommerce-store change, described, not made:
 
@@ -119,7 +119,7 @@ The ecommerce-store change, described, not made:
 4. **`containers/run-benchmark.sh`.** It passes the point. This repo's `scripts/run.sh` does the same, and `scripts/session.sh`'s `TRIAL_MINUTES` default follows the point.
 5. **Docs.** A dated decision in `docs/plan.md`, and the warm-up row in `bench/README.md`.
 
-**Calibrating it.** The 2/2 value came from a 10-minute soak. The 4/4 value should come from a soak of every target at 4/4, from a dropped cache, at the candidate rate. It sets the request count so the slowest-filling target reaches 90% of its basis with the same margin 2/2 has, about 1.5 times. **Placeholder until then: 200 rps, the 2/2 rate per core, and 600,000–750,000 requests, about 50–60 minutes.** The 4/4 ladder is the same for every target. It may need a step above 1,600 rps; the 2/2 session will show whether the stack still has headroom there.
+**Calibrating it.** The 2/2 value came from a 10-minute soak. The 4/4 value should come from a soak of every target at 4/4, from a dropped cache, at the candidate rate. It sets the request count so the slowest-filling target reaches 90% of its basis with the margin the same model gives 2/2, about 1.5 times. **Placeholder until then: 200 rps, the 2/2 rate per core, and 600,000–750,000 requests, about 50–60 minutes.** The 4/4 ladder is the same for every target. It may need a step above 1,600 rps; the 2/2 session will show whether the stack still has headroom there.
 
 ## Session time and cost at 4/4
 
