@@ -12,6 +12,7 @@ How to run a [stack comparison](../../README.md#stack-comparisons) on a dedicate
 | [`sample.sh`](sample.sh) | VM, as root, whole session | Cycles per target every 250 ms; CPU, memory, steal, and maintenance events every second |
 | [`conditions.sh`](conditions.sh) | VM, as root | Raw snapshot of host run conditions |
 | [`ecommerce-store-gaps.md`](ecommerce-store-gaps.md) | | What the Harper reference harness needed for tier 2, what closed it, and what is still open |
+| [`budget-points.md`](budget-points.md) | | Design for a second target budget, 4 CPU / 4 GiB: instance, layout, sizing, warm-up, cost |
 | [`qualification/`](qualification) | | Raw probe output and instance settings from each qualification session |
 
 ## The clock on GCP
@@ -70,6 +71,10 @@ A container joins a slice through compose `cgroup_parent`. Any container that do
 
 The rules allow the generator on the same machine provided it sits outside the target's budget, and same-machine is the default here. It keeps the network path identical to tier 1 (a compose bridge), costs one VM instead of two, and avoids GCP network jitter entering every latency sample. Its cost is that the generator shares the socket's cache and memory bandwidth with the target; that is the same for every target in a session, and the generator's load is small at the request rates measured so far. A separate VM in a compact placement policy is the right check if a reviewer suspects interference, not the default.
 
+### Budget points
+
+Everything above describes the 2 CPU / 2 GiB budget. A second point, 4 CPU / 4 GiB on `c4-standard-24-lssd`, is designed in [`budget-points.md`](budget-points.md) and has not run. Each point is its own set of sessions with the same dataset, harness and rules, and results from different points are never pooled. The 4/4 point needs a warm-up keyed on the budget as well as the dataset scale, which ecommerce-store does not have yet.
+
 ## Project and spend
 
 One dedicated project holds every tier-2 session, so spend is attributable and nothing else lives beside the VMs. Any staff member can create a project and link it to the company billing account, which carries credits. Commands for the person setting it up, once (run 2026-10-14; `gcloud auth login` first):
@@ -84,9 +89,17 @@ gcloud config set account "$(gcloud config get-value account)" --configuration=a
 gcloud config set project "$PROJECT" --configuration=arch-bench
 gcloud config set compute/zone us-central1-a --configuration=arch-bench
 gcloud billing budgets create --billing-project="$PROJECT" --billing-account="$BILLING_ACCOUNT" --display-name="arch-bench" \
-  --filter-projects="projects/$PROJECT" --budget-amount=100USD --credit-types-treatment=exclude-all-credits \
+  --filter-projects="projects/$PROJECT" --budget-amount=500USD --credit-types-treatment=exclude-all-credits \
   --threshold-rule=percent=0.5 --threshold-rule=percent=0.9 --threshold-rule=percent=1.0 \
   --threshold-rule=percent=1.0,basis=forecasted-spend
+```
+
+The budget created on 2026-10-14 was $100. [Decision 2](#decisions) raised it to $500 on 2026-10-15, but the live budget keeps $100 until someone runs the update. Its threshold rules change only through the threshold flags, so they stay as they are:
+
+```bash
+BUDGET=$(gcloud billing budgets list --billing-project="$PROJECT" --billing-account="$BILLING_ACCOUNT" \
+  --filter='displayName=arch-bench' --format='value(name)')
+gcloud billing budgets update "$BUDGET" --billing-project="$PROJECT" --budget-amount=500USD
 ```
 
 `--billing-project` is required: the Budgets API needs a quota project, and without one the command fails with a misleading permission error. Credits are excluded so the alerts track usage, not the remainder after credits, which on a credit-funded account can stay at zero. Alerts go to the billing account's administrators and users by default. A project owner can create a budget for that project without billing-account permissions; if `gcloud billing budgets create` refuses, the console's Billing page can. Budgets alert, they do not cap. Billing-account-wide cost-anomaly and daily-spend alerts are managed centrally on top of this.
@@ -109,6 +122,7 @@ Estimated cost per session. Google's Cloud Billing Catalog, read 2026-10-14, pri
 | Two targets, five interleaved trials each | ~6 h | ~$6 |
 | Forgotten VM, capped by the deadline | 8 h | ~$8 |
 | Bare-metal verification session | ~4 h | ~$80 |
+| [4 CPU / 4 GiB point](budget-points.md#session-time-and-cost-at-44), `c4-standard-24-lssd` at $1.53/h, two targets, three interleaved trials each (estimated, not run) | ~7.5–9.5 h | ~$11–15 |
 
 Trial sessions assume ecommerce-store's harness: about 30 minutes per trial, 20 of them the fixed `bench` warm-up, plus about 20 minutes of seeding per target and 20 of setup. Two targets at five trials each leave about two hours before the self-delete deadline. More targets or trials need fewer of the other, or a longer deadline (`MAX_RUN`, read by `vm.sh up`), since every target has to run in one session.
 
@@ -327,7 +341,7 @@ The session changed one script. The probe's busy-everything phase now also loads
 Made 2026-10-12, before the first session.
 
 1. **Project:** `harper-arch-bench`, created 2026-10-14 directly under the Harper organization, with no folder: staff cannot list folders, and the organization's other projects sit at its root. An organization admin can move it into a folder later without affecting it.
-2. **Budget:** $100 a month, with alerts at 50%, 90%, and 100% of actual spend and at 100% of forecast.
+2. **Budget:** $500 a month, decided by Ethan on 2026-10-15; it was $100. [`budget-points.md`](budget-points.md#budget) shows what that buys at each budget point. Alerts are unchanged: 50%, 90%, and 100% of actual spend, and 100% of forecast. The live budget resource says $100 until the update command under [Project and spend](#project-and-spend) runs.
 3. **Clock rule:** "all-core turbo, measured" satisfies it where the clock cannot be pinned. The top-level README's tier-2 paragraph and first [measurement rule](../../README.md#measurement-rules) say so: pin where the host allows it; otherwise bound it, count cycles per target, record the effective frequency, and publish "all-core turbo, measured at N GHz", never "pinned".
 4. **Bare metal and sole tenancy:** one verification session at most, to find out whether bare metal gives the OS frequency control and how far its results differ from the VM's. Never the default.
 5. **Drift threshold:** 2% from the session median, or three times the session probe's measured spread, whichever is larger.
