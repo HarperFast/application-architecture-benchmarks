@@ -584,7 +584,9 @@ bench() {
 		if [ -n "${CONDITIONS_SH:-}" ]; then
 			sudo bash "$CONDITIONS_SH" "$RAW/hostconditions-$target-$stamp" "$REPO" "$ECOMMERCE_STORE_DIR" >/dev/null 2>&1 || say "conditions.sh failed (recorded, not fatal)"
 		fi
-		if [ "$target" = fpr ]; then audit | tee -a "$RAW/console-$target-$stamp.txt"; fi
+		# A stale response voids the trial like a failed verification. `|| fault`, not a bare pipe:
+		# under set -e a failing audit would end run.sh before the verdict and the target's stop.
+		if [ "$target" = fpr ]; then audit "${record:+$RAW/$record}" | tee -a "$RAW/console-$target-$stamp.txt" || fault "coherence audit failed"; fi
 		# Targets share bench-target.slice on tier 2: never leave one resident inside the next one's budget.
 		stop_target "$target"
 		say "trial $target $stamp: $verdict"
@@ -635,7 +637,9 @@ coherence() {
 audit() {
 	say "coherence audit: cached responses vs responses computed from Postgres alone"
 	sleep 2 # writes have stopped; FRESH_MS is 1000
-	node "$HERE/scripts/audit-coherence.mjs" --url "http://localhost:$(port_of fpr)" --dataset "$HARNESS_DATASET_HOST"
+	# The run record, when there is one, names the write stream the audit rebuilds.
+	node "$HERE/scripts/audit-coherence.mjs" --url "http://localhost:$(port_of fpr)" --dataset "$HARNESS_DATASET_HOST" \
+		--ecommerce-store "$ECOMMERCE_STORE_DIR" ${1:+--record "$1"}
 }
 
 cmd="${1:-}"; shift || true
