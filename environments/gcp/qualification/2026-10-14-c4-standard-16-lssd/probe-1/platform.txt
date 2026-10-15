@@ -1,0 +1,30 @@
+== platform
+CPU(s):                                  8
+Model name:                              Intel(R) Xeon(R) 6985P-C CPU @ 2.30GHz
+Thread(s) per core:                      1
+Core(s) per socket:                      8
+Socket(s):                               1
+CPU(s) scaling MHz:                      117%
+Hypervisor vendor:                       KVM
+NUMA node(s):                            1
+NUMA node0 CPU(s):                       0-7
+Intel Granite Rapids
+== PMU as the kernel sees it
+[    0.512522] Performance Events: Granite Rapids events, full-width counters, Intel PMU driver.
+== cpufreq (absent on a VM; on bare metal, this is what pinning would use)
+affected_cpus
+cpuinfo_max_freq
+cpuinfo_min_freq
+cpuinfo_transition_latency
+related_cpus
+scaling_available_governors
+scaling_cur_freq
+scaling_driver
+scaling_governor
+scaling_max_freq
+scaling_min_freq
+scaling_setspeed
+== guest-reported MHz (NOT the clock: a fixed compatibility value on C4)
+cpu MHz		: 3877.443
+== nmi_watchdog (1 holds a PMU counter per CPU; host-setup.sh sets 0)
+0

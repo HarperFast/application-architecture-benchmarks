@@ -54,7 +54,7 @@ State what each comparison holds fixed and what it tests. There are two kinds.
 
 ### Stack comparisons
 
-Compare a Harper application with one assembled from technologies such as Fastify, Postgres, Redis, MongoDB, and Memcached. Give every target the **same total CPU and RAM**, summed across all its processes and instances. Pin CPU clocks. **Throughput** is the primary metric; latency determines when a target stops meeting its service target.
+Compare a Harper application with one assembled from technologies such as Fastify, Postgres, Redis, MongoDB, and Memcached. Give every target the **same total CPU and RAM**, summed across all its processes and instances. Pin CPU clocks where the host allows it; otherwise bound and measure them. **Throughput** is the primary metric; latency determines when a target stops meeting its service target.
 
 Stack comparisons test the primary hypothesis under tightly controlled conditions. They need only a single Linux VM for the run and are our most defensible measurement. Because they involve open source projects directly, they carry the strictest claim rules.
 
@@ -78,13 +78,13 @@ Move through up to three tiers in order. Each costs more and removes limitations
 
 **Tier 1 — containers on a local machine.** Run all targets on one developer machine with fixed CPU and memory budgets. Use this inexpensive, reproducible setup to build the harness, debug implementations, and explore where architectures win or lose.
 
-Local numbers are not publishable results. On macOS, limits apply to the container VM's share of resources, the VM adds a network boundary, and the CPU clock cannot be pinned, so ops per CPU-gigacycle cannot be reported. Linux laptops also remain in tier 1: thermal management makes them unsuitable for controlled measurements.
+Local numbers are not publishable results. On macOS, limits apply to the container VM's share of resources, the VM adds a network boundary, and the CPU clock can be neither pinned nor counted, so ops per CPU-gigacycle cannot be reported. Linux laptops also remain in tier 1: thermal management makes them unsuitable for controlled measurements.
 
-**Tier 2 — a Linux host on GCP.** Use the same containers, budgets, and harness on a dedicated Linux VM. Stack comparisons become publishable here: cgroup limits apply to real hardware, clocks can be pinned, and per-target CPU accounting is trustworthy. This is the only tier where all [Measurement rules](#measurement-rules) can be met.
+**Tier 2 — a Linux host on GCP.** Use the same containers, budgets, and harness on a dedicated Linux VM. Stack comparisons become publishable here: cgroup limits apply to real hardware, clocks are bounded at all-core turbo and measured with per-target cycle counts, and per-target CPU accounting is trustworthy. This is the only tier where all [Measurement rules](#measurement-rules) can be met.
 
 Use a plain VM, not Fabric. Fabric suits Harper but handicaps Postgres. It belongs in tier 3 as the product being tested.
 
-Provision through the CLI in a dedicated project so spend is attributable, and tear instances down after each run. Include reproducible provisioning steps with the comparison; keep private access and billing details in separate internal documentation. GCP is a convenience choice; Linode or another provider is equally valid. Record the provider with the run.
+Provision through the CLI in a dedicated project so spend is attributable, and tear instances down after each run. Include reproducible provisioning steps with the comparison; keep private access and billing details in separate internal documentation. GCP is a convenience choice; Linode or another provider is equally valid. Record the provider with the run. The procedure, the recommended instance, and what the clock can and cannot do on GCP are in [`environments/gcp`](environments/gcp/README.md).
 
 **Tier 3 — a platform as a service.** Compare Fabric with Supabase, MongoDB Atlas, Redis Cloud, or similar offerings. This tier is optional because tiers 1 and 2 suffice for a publishable stack comparison, but it is expected for most comparisons and is the only tier supporting claims naming a company. See [Platform as a service comparisons](#platform-as-a-service-comparisons).
 
@@ -109,7 +109,7 @@ Restore the dataset before every trial. Writes from earlier trials must not chan
 
 These rules include lessons from early and ongoing automated benchmark runs.
 
-- **Pin and record CPU clocks.** A drop from 3.5 GHz to 0.85 GHz after turbo expires can greatly change ops per CPU-second for identical work. Pinning has proved more consistent. Report ops per CPU-**gigacycle**, not CPU-second; repeat any trial with clock drift. If clocks cannot be pinned, as in a macOS container VM, this figure cannot be reported and the run stays in [tier 1](#environment-tiers). Shared-tenant cloud CPUs have the same risk with less visibility, so every published number must include its clock.
+- **Pin CPU clocks where the host allows it, otherwise bound and measure them, and record them.** A drop from 3.5 GHz to 0.85 GHz after turbo expires can greatly change ops per CPU-second for identical work. Pinning has proved more consistent. Report ops per CPU-**gigacycle**, not CPU-second; repeat any trial with clock drift. Where clocks cannot be pinned, as on a GCP VM, bound them (all-core turbo, single-core boost disabled) and count each target's cycles with hardware performance counters, so gigacycles are measured rather than inferred. Record the effective frequency per step and publish it as "all-core turbo, measured at N GHz", never as pinned. If clocks can be neither pinned nor counted, as in a macOS container VM, this figure cannot be reported and the run stays in [tier 1](#environment-tiers). Shared-tenant cloud CPUs have the same risk with less visibility, so every published number must include its clock.
 - **Check for silent misconfiguration.** Keep ground-truth correctness checks for every target in the harness. Plausible throughput can hide errors: in one vector run, a pgvector operator mismatch caused a sequential scan, a Qdrant setting left it using brute force with full recall at every parameter, and an index served queries before it finished building. Throughput alone would miss all three.
 - **Measure every target in one session.** pgvector measurements moved 18% between sessions on identical hardware. Cross-session ratios are unsound.
 - **Run a load ladder.** Include it in the harness from the start. A single saturating concurrency cannot locate the inflection point needed to report “sustains N more requests per second before p99 crosses threshold T.”
@@ -121,7 +121,7 @@ These rules include lessons from early and ongoing automated benchmark runs.
 - **Disclose advantages.** State when an architecture lets one implementation skip work another must do. Report each implementation's advantages as well as its losses.
 - **Never use tmpfs.** Its effect on file I/O invalidates storage comparisons.
 
-Share the harness for clock pinning, cycle-normalized efficiency, per-target CPU accounting, cache-hit measurement, and correctness guards across comparisons.
+Share the harness for clock pinning or cycle counting, cycle-normalized efficiency, per-target CPU accounting, cache-hit measurement, and correctness guards across comparisons.
 
 ### Implementations
 

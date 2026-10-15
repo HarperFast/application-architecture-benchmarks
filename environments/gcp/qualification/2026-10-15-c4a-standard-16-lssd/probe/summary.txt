@@ -1,0 +1,4 @@
+target-only  n=110  min=2.982  p50=2.987  max=2.987 GHz  spread=0.2% of median
+all-busy     n=110  min=2.983  p50=2.987  max=2.987 GHz  spread=0.1% of median
+drift threshold 2.0%; target-only and all-busy medians differ by 0.0% ok
+probe passed: cycles countable per CPU and per cgroup; slices hold

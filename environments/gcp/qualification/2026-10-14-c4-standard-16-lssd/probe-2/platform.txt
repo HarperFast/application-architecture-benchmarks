@@ -1,0 +1,25 @@
+== platform
+CPU(s):                                  8
+Model name:                              Intel(R) Xeon(R) 6985P-C CPU @ 2.30GHz
+Thread(s) per core:                      1
+Core(s) per socket:                      8
+Socket(s):                               1
+CPU(s) scaling MHz:                      128%
+Hypervisor vendor:                       KVM
+NUMA node(s):                            1
+NUMA node0 CPU(s):                       0-7
+Intel Granite Rapids
+== PMU as the kernel sees it
+[    0.512522] Performance Events: Granite Rapids events, full-width counters, Intel PMU driver.
+== cpufreq
+/sys/devices/system/cpu/cpu0/cpufreq/scaling_driver:intel_cpufreq
+/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor:schedutil
+/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_min_freq:2300000
+/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq:2300000
+/sys/devices/system/cpu/intel_pstate/status:passive
+/sys/devices/system/cpu/intel_pstate/num_pstates:1
+/sys/devices/system/cpu/intel_pstate/no_turbo:0
+== guest-reported MHz (a counter-derived snapshot, not a clock record)
+cpu MHz		: 3855.132
+== nmi_watchdog (1 holds a PMU counter per CPU; host-setup.sh sets 0)
+0

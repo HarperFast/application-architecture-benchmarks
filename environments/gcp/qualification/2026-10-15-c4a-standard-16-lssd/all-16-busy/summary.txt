@@ -1,0 +1,1 @@
+target CPUs with all 16 busy: n=70 min=2.986 p50=2.987 max=2.987 GHz spread=0.0%
