@@ -63,6 +63,35 @@ export async function buildApp() {
 		return { ok: true };
 	});
 
+	/**
+	 * Cumulative cache and buffer counters, polled by the comparison's wrapper every few seconds so
+	 * hit rates can be joined to each step: this application's own entity and aggregate cache
+	 * counters, Redis's keyspace hits, misses and evictions, and Postgres's shared-buffer hits and
+	 * reads (a "read" is a block Postgres did not have in shared_buffers; it may still come from
+	 * the page cache, which the harness's per-container disk reads separate). A few cheap reads,
+	 * served inside the target's budget, about once every two seconds.
+	 */
+	app.get('/__stats', async () => {
+		const [cache, info, db] = await Promise.all([
+			redis.hGetAll('stats:cache'),
+			redis.info(),
+			pool.query("SELECT blks_hit, blks_read, tup_returned, tup_fetched, xact_commit FROM pg_stat_database WHERE datname = current_database()"),
+		]);
+		const field = (name) => {
+			const match = new RegExp(`^${name}:(\\d+)`, 'm').exec(info);
+			return match ? Number(match[1]) : null;
+		};
+		return {
+			epochMs: Date.now(),
+			cache: Object.fromEntries(Object.entries(cache).map(([k, v]) => [k, Number(v)])),
+			redis: {
+				keyspaceHits: field('keyspace_hits'), keyspaceMisses: field('keyspace_misses'),
+				evictedKeys: field('evicted_keys'), usedMemory: field('used_memory'), maxmemory: field('maxmemory'),
+			},
+			postgres: Object.fromEntries(Object.entries(db.rows[0] ?? {}).map(([k, v]) => [k, Number(v)])),
+		};
+	});
+
 	/** Run-record metadata: the loaded dataset's manifest and the configuration in force. */
 	app.get('/__meta', async () => {
 		const { rows } = await query(pool, SQL.manifest, []);

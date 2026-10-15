@@ -21,7 +21,7 @@ import { createHash } from 'node:crypto';
 import { createGunzip } from 'node:zlib';
 import { createInterface } from 'node:readline';
 import { join } from 'node:path';
-import { Readable } from 'node:stream';
+import { Readable, Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import pg from 'pg';
 import { from as copyFrom } from 'pg-copy-streams';
@@ -33,6 +33,12 @@ const argOf = (name, fallback) => {
 	return i === -1 ? fallback : args[i + 1];
 };
 const DIR = argOf('dataset', '/dataset');
+// Stop after checksum verification: exercises the read path (gzipped or not) without loading.
+const VERIFY_ONLY = args.includes('--verify-only');
+const ENCODE_ONLY = args.includes('--encode-only');
+// Index builds and foreign-key validation at bench scale (31M inventory rows) want more than
+// the server's default; the loader raises it for its own session only.
+const MAINTENANCE_WORK_MEM = process.env.LOAD_MAINTENANCE_WORK_MEM ?? '256MB';
 const DATABASE_URL = process.env.DATABASE_URL ?? 'postgres://store:store@localhost:5432/store';
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 const SQL_DIR = join(import.meta.dirname, '..', 'sql');
@@ -131,6 +137,7 @@ if (Object.keys(manifest.files).sort().join() !== [...LOAD_ORDER].sort().join())
 }
 
 // --- 1. verify ---------------------------------------------------------------------------------
+const verifyStarted = Date.now();
 for (const table of LOAD_ORDER) {
 	const hash = createHash('sha256');
 	let rows = 0;
@@ -144,6 +151,41 @@ for (const table of LOAD_ORDER) {
 		throw new Error(`DATA-003: ${table} does not match MANIFEST.json (sha256 ${sha256}, rows ${rows}; expected ${expected.sha256}, ${expected.rows})`);
 	}
 	console.log(`  verified ${table.padEnd(10)} ${String(rows).padStart(10)} rows  ${sha256.slice(0, 16)}…`);
+}
+console.log(`  checksums verified in ${((Date.now() - verifyStarted) / 1000).toFixed(1)}s`);
+if (VERIFY_ONLY) process.exit(0);
+
+/** COPY text-format batches for one table, validating every row's field set. */
+async function* encodeTable(table, counter, t0) {
+	const spec = TABLES[table];
+	const expectedFields = spec.fields.join();
+	let batch = '';
+	for await (const line of createInterface({ input: open(table), crlfDelay: Infinity })) {
+		if (!line) continue;
+		const row = JSON.parse(line);
+		const fields = Object.keys(row).sort().join();
+		if (fields !== expectedFields) throw new Error(`${table} row has fields [${fields}], expected [${expectedFields}]`);
+		batch += spec.encode(row).join('\t') + '\n';
+		counter.rows++;
+		if (counter.rows % 5_000_000 === 0) console.log(`    ${table} ${counter.rows} rows, ${((Date.now() - t0) / 1000).toFixed(0)}s`);
+		if (batch.length > 1 << 16) {
+			yield batch;
+			batch = '';
+		}
+	}
+	if (batch) yield batch;
+}
+
+// Parse and encode every row without loading: the client-side cost of a load, measured alone.
+if (ENCODE_ONLY) {
+	for (const table of LOAD_ORDER) {
+		const t0 = Date.now();
+		const counter = { rows: 0 };
+		let bytes = 0;
+		await pipeline(Readable.from(encodeTable(table, counter, t0)), new Writable({ write(chunk, _enc, done) { bytes += chunk.length; done(); } }));
+		console.log(`  encoded  ${table.padEnd(10)} ${String(counter.rows).padStart(10)} rows  ${(bytes / 2 ** 20).toFixed(0)} MiB of COPY text  ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+	}
+	process.exit(0);
 }
 
 // --- 2. load -----------------------------------------------------------------------------------
@@ -172,33 +214,18 @@ const client = await connectWithRetry(async () => {
 }, 'Postgres');
 const started = Date.now();
 try {
-	await client.query("SET maintenance_work_mem = '256MB'");
+	await client.query(`SET maintenance_work_mem = '${MAINTENANCE_WORK_MEM.replace(/[^0-9A-Za-z]/g, '')}'`);
 	await client.query('SET synchronous_commit = off');
 	await client.query('BEGIN');
 	await client.query(await readFile(join(SQL_DIR, 'schema.sql'), 'utf8'));
 
 	for (const table of LOAD_ORDER) {
 		const spec = TABLES[table];
-		const expectedFields = spec.fields.join();
 		let rows = 0;
-		async function* encoded() {
-			let batch = '';
-			for await (const line of createInterface({ input: open(table), crlfDelay: Infinity })) {
-				if (!line) continue;
-				const row = JSON.parse(line);
-				const fields = Object.keys(row).sort().join();
-				if (fields !== expectedFields) throw new Error(`${table} row has fields [${fields}], expected [${expectedFields}]`);
-				batch += spec.encode(row).join('\t') + '\n';
-				rows++;
-				if (batch.length > 1 << 16) {
-					yield batch;
-					batch = '';
-				}
-			}
-			if (batch) yield batch;
-		}
 		const t0 = Date.now();
-		await pipeline(Readable.from(encoded()), client.query(copyFrom(`COPY ${table} (${spec.columns}) FROM STDIN (FORMAT text)`)));
+		const counter = { rows: 0 };
+		await pipeline(Readable.from(encodeTable(table, counter, t0)), client.query(copyFrom(`COPY ${table} (${spec.columns}) FROM STDIN (FORMAT text)`)));
+		rows = counter.rows;
 		if (rows !== manifest.files[table].rows) throw new Error(`${table}: copied ${rows} rows, manifest says ${manifest.files[table].rows}`);
 		console.log(`  loaded   ${table.padEnd(10)} ${String(rows).padStart(10)} rows  ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 	}

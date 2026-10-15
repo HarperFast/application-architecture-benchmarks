@@ -2,7 +2,7 @@
 
 An implementation of the [ecommerce-store](https://github.com/HarperFast/ecommerce-store) application specification (`SPEC.md` `0.2.0-draft`) on a separated stack: a Fastify HTTP service, PostgreSQL as the source of truth, and Redis as the cache. It is the first competing implementation for the Harper reference, built for the step-0 rough comparison in [`comparisons/ecommerce-store-rough`](../../comparisons/ecommerce-store-rough). Nothing produced from it is a published result; see the [methodology](../../README.md).
 
-The specification, dataset, conformance suite and load harness live in the ecommerce-store repository and are used from a checkout of it, never copied here. The contract this implementation is built and checked against is ecommerce-store's `harper-5.3` branch (`SPEC.md`, `packages/spec`, `e2e/`, `scripts/verify-coherence.mjs`, and the harness), which fixes harness measurement bugs and several reference behaviours relative to `main`; the commit used (currently `5c32151`, dataset generator 0.5.0) is recorded with every run.
+The specification, dataset, conformance suite and load harness live in the ecommerce-store repository and are used from a checkout of it, never copied here. The contract this implementation is built and checked against is ecommerce-store's `harper-5.3` branch (`SPEC.md`, `packages/spec`, `e2e/`, `scripts/verify-coherence.mjs`, and the harness), which fixes harness measurement bugs and several reference behaviours relative to `main`; the commit used is recorded with every run (`5c32151` for the measured `dev` sessions, `f7a688b` for the tier-2 orchestration; dataset generator 0.5.0).
 
 ## Versions
 
@@ -16,19 +16,19 @@ The specification, dataset, conformance suite and load harness live in the ecomm
 | Redis | 8.10.2 | `docker.io/library/redis:8.10.2-trixie` |
 | node-redis | 6.3.0 | `redis` (the client Redis recommends for new projects; ioredis is in best-effort maintenance) |
 
-All versions were the latest stable releases on 2026-10-12, checked against npm, nodejs.org and Docker Hub. Node 26 is the Current line until its LTS promotion later in October 2026, so the Active LTS line is used, the same major the reference's container uses.
+All versions were the latest stable releases on 2026-10-12, checked against npm, nodejs.org and Docker Hub. The three base images are pinned by multi-arch index digest in `compose.yaml` (`x-base-images`), so tier 1 (arm64) and tier 2 (x86-64) run the same release and a later rebuild cannot change them. Node 26 is the Current line until its LTS promotion later in October 2026, so the Active LTS line is used, the same major the reference's container uses.
 
 ## Topology and budget
 
 Three containers on one user-defined bridge network, plain HTTP, named volume for Postgres (never tmpfs). No compose healthchecks: a healthcheck execs a probe inside the container every interval, charged to the budget under measurement (the reference dropped its own for the same reason); readiness is probed from outside.
 
-| Service | Process | Memory limit |
-|-|-|-|
-| `app` | Node primary + 2 Fastify workers (`node:cluster`), each with an 8-connection Postgres pool and one Redis connection | 640 MiB |
-| `postgres` | PostgreSQL 18 | 1024 MiB |
-| `redis` | Redis 8, `maxmemory 256mb` | 384 MiB |
+| Service | Process | Memory limit | Sized from the limit |
+|-|-|-|-|
+| `app` | Node primary + 2 Fastify workers (`node:cluster`), each with an 8-connection Postgres pool and one Redis connection | 512 MiB | Node heap capped at 160 MiB per process |
+| `postgres` | PostgreSQL 18 | 1,280 MiB | `shared_buffers` 320 MB, `effective_cache_size` 960 MB, `work_mem` 4 MB, `maintenance_work_mem` 64 MB |
+| `redis` | Redis 8 | 256 MiB | `maxmemory` 153 MB |
 
-The reference runs as one container at 2 CPU / 2 GiB. This stack spends the same 2 CPU / 2 GiB **summed across all three**. Memory is split per container (640 + 1024 + 384 = 2048 MiB). CPU can be enforced two ways, and the choice matters a great deal (see the [findings](../../comparisons/ecommerce-store-rough/findings.md)):
+The reference runs as one container at 2 CPU / 2 GiB. This stack spends the same 2 CPU / 2 GiB **summed across all three**. Memory is split per container (512 + 1,280 + 256 = 2,048 MiB), and every process is sized from its own container's limit explicitly, never from what it can see: on the tier-2 host a container cannot see its slice's limits, and on a Podman VM it sees the VM. `compose.yaml` takes the sizes as variables (defaults above); the comparison's `run.sh` derives them from any split (`APP_MEMORY_MIB`, `PG_MEMORY_MIB`, `REDIS_MEMORY_MIB`) and records them with every run. The `dev` sessions in the findings ran an earlier 640 / 1,024 / 384 split with 256 MB `shared_buffers` and `maxmemory`; the new split gives Postgres the most, because at `bench` scale its working set is the one larger than memory. CPU can be enforced two ways on tier 1, and the choice matters a great deal (see the [findings](../../comparisons/ecommerce-store-rough/findings.md)); on tier 2 the target slice's cpuset is the budget and no container has a CPU quota:
 
 - **shared** (the default in the comparison): all three containers run under one cgroup slice capped at 2 CPU / 2 GiB, so CPU is one pool the three processes draw from, as the reference's threads draw from one container's quota. The slice is a podman pod created with `--share none --infra=false --cpus 2 --memory 2g`, used only for its cgroup; each container keeps its own network namespace on the bridge.
 - **split**: per-container CPU quotas that sum to 2 (app 1.25, postgres 0.5, redis 0.25), chosen from the measured CPU shares at load (about 64% / 30% / 6%) rounded to leave Redis headroom. Static quotas throttle bursty processes even when their average is well under the quota.
@@ -51,6 +51,8 @@ Conformance (from the ecommerce-store checkout, against the published port):
 ```bash
 cd /path/to/ecommerce-store/e2e && BASE_URL=http://localhost:39926 npx playwright test
 ```
+
+The loader verifies every file against `MANIFEST.json` (DATA-003) and streams the tables, gzipped or not, into `COPY`; then it adds keys, indexes and foreign keys, runs `VACUUM ANALYZE`, and flushes Redis. `--verify-only` stops after the checksums and `--encode-only` also streams every table through the encoder without a database, so a `bench` dataset can be checked on a machine that must not load it. `LOAD_MAINTENANCE_WORK_MEM` (default 256MB) sizes the index builds.
 
 Unit tests for the pricing engine: `cd app && npm test`.
 
@@ -107,7 +109,7 @@ Plain cache-aside has a refill race that can leave a stale value in place until 
 - an entity fill reads the generation before reading Postgres and stores only if it is unchanged (a Lua compare-and-set);
 - an aggregate is stored together with the generations it was built under, and a read serves it only if they still match (fetched in the same `MGET`). Generations are per product (price) and per product x region (inventory), so a view's validity never depends on the write surface having deleted every key it affected.
 
-Redis has no persistence (`save ""`, no AOF); `allkeys-lru` with `maxmemory 256mb`. Responses carry `Server-Timing: cache;desc=hit|miss, data;dur, compute;dur, total;dur`; the quote always reports `miss`. Per-cache hit and miss counters are kept in the Redis hash `stats:cache`.
+Redis has no persistence (`save ""`, no AOF); `allkeys-lru` with `maxmemory` 153 MB. Responses carry `Server-Timing: cache;desc=hit|miss, data;dur, compute;dur, total;dur`; the quote always reports `miss`. Per-cache hit and miss counters are kept in the Redis hash `stats:cache`; `GET /__stats` returns them with Redis's keyspace hits, misses and evictions and Postgres's shared-buffer hits and reads, cumulatively, for the comparison to join to each step.
 
 ## Quote read path
 
@@ -133,8 +135,8 @@ Recorded as the methodology asks (advantages as well as costs):
 ## Configuration choices
 
 - **Node:** 2 cluster workers, one per CPU of the budget; request logging disabled and log level `warn` (as in the reference); Fastify JSON schemas for validation and for response serialization (fast-json-stringify); a cached aggregate is sent as its stored string.
-- **Postgres** (`postgres/postgresql.conf`): `shared_buffers` 256 MB (a quarter of the container), `effective_cache_size` 768 MB, SSD planner costs (`random_page_cost` 1.1, `effective_io_concurrency` 200), parallel query and JIT off (sub-millisecond OLTP statements), durability defaults kept, `pg_stat_statements` on, `max_connections` 40 for 16 pooled connections.
-- **Redis** (`redis/redis.conf`): pure cache, `allkeys-lru` (the documented recommendation for a power-law access pattern), lazy freeing on, no persistence, not published to the host.
+- **Postgres** (`postgres/postgresql.conf`, plus memory settings on the command line from `compose.yaml`): `shared_buffers` a quarter of the container (320 MB), `effective_cache_size` three quarters (960 MB), SSD planner costs (`random_page_cost` 1.1, `effective_io_concurrency` 200), parallel query and JIT off (sub-millisecond OLTP statements), durability defaults kept, `pg_stat_statements` on, `max_connections` 40 for 16 pooled connections.
+- **Redis** (`redis/redis.conf`, `maxmemory` from `compose.yaml`): pure cache, `maxmemory` about 60% of the container (leaving fragmentation, client buffers and its binary's page cache, all charged to the container), `allkeys-lru` (the documented recommendation for a power-law access pattern), lazy freeing on, no persistence, not published to the host.
 
 ## Known limitations
 

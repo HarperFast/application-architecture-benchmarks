@@ -10,7 +10,26 @@
 #           (the comparison's run.sh creates the slice and sets each container's CPU limit to
 #           the whole budget)
 #
-# Memory split (MiB): app 640 + postgres 1024 + redis 384 = 2048.
+# Memory split (MiB): app 512 + postgres 1280 + redis 256 = 2048, and every process is sized from
+# its container's limit explicitly, never from what it sees: on the tier-2 host a container
+# cannot see its slice's limits (its cgroup namespace starts below them), and on a Podman VM it
+# sees the VM. The defaults below are the recorded sizing for that split; the comparison's
+# run.sh derives them from whatever split it is given:
+#
+#   app       NODE_HEAP_MIB 160 per Node process (primary and 2 workers; anonymous memory measured
+#             about 200 MiB in total on dev, plus about 100 MiB of page cache for the Node binary
+#             and modules, which counts against the container)
+#   postgres  shared_buffers 25% and effective_cache_size 75% of the container, work_mem 4MB
+#             (40 connections at most), maintenance_work_mem 64MB (the loader raises its own)
+#   redis     maxmemory about 60% of the container, leaving room for fragmentation, client
+#             buffers and the page cache of its own binary (about 40 MiB measured)
+#
+# The limits are *_MEMORY_LIMIT_MIB. They equal the split unless the comparison's run.sh is told
+# MEMORY_SPLIT=slice on tier 2, where the slice's 2 GiB is the only limit and each container may
+# use what the others leave; the processes are sized from the split either way.
+#
+# Earlier dev sessions ran the 640 / 1024 / 384 split with 256MB shared_buffers and 256mb
+# maxmemory; each run records the split it used.
 #
 # Networking: one user-defined bridge, as for the reference. Only the app is published to the
 # host, for conformance runs; Postgres and Redis are reachable only on the bridge.
@@ -26,10 +45,32 @@
 
 name: aab-fastify-postgres-redis
 
+# Base images, pinned by multi-arch index digest: a tag moves, and a stack rebuilt on another day
+# would run another build of Postgres, Redis or Node. Tier 1 (arm64) and tier 2 (x86-64) resolve
+# the same release. Recorded with every run; change them deliberately and say so.
+x-base-images:
+  postgres: &postgres-image docker.io/library/postgres:18.6-trixie@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
+  redis: &redis-image docker.io/library/redis:8.10.2-trixie@sha256:2c2dff791878316e3b083188be0d578423b24813cdda5de0e80ea4f7b3e6bfd6
+  node: &node-image docker.io/library/node:24.21.0-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20
+
 services:
   postgres:
-    image: docker.io/library/postgres:18.6-trixie
-    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+    image: *postgres-image
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+      - -c
+      - shared_buffers=${PG_SHARED_BUFFERS:-320MB}
+      - -c
+      - effective_cache_size=${PG_EFFECTIVE_CACHE_SIZE:-960MB}
+      - -c
+      - work_mem=${PG_WORK_MEM:-4MB}
+      - -c
+      - maintenance_work_mem=${PG_MAINTENANCE_WORK_MEM:-64MB}
+    # A clean shutdown checkpoints; at bench scale that can take longer than compose's default
+    # 10 s, and a snapshot of an unclean shutdown would replay WAL on every restore.
+    stop_grace_period: 120s
     environment:
       POSTGRES_USER: store
       POSTGRES_DB: store
@@ -50,11 +91,11 @@ services:
       resources:
         limits:
           cpus: "${PG_CPUS:-0.5}"
-          memory: "${PG_MEMORY_MIB:-1024}m"
+          memory: "${PG_MEMORY_LIMIT_MIB:-1280}m"
 
   redis:
-    image: docker.io/library/redis:8.10.2-trixie
-    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    image: *redis-image
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf", "--maxmemory", "${REDIS_MAXMEMORY_MB:-153}mb"]
     volumes:
       - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
     networks: [store]
@@ -63,10 +104,13 @@ services:
       resources:
         limits:
           cpus: "${REDIS_CPUS:-0.25}"
-          memory: "${REDIS_MEMORY_MIB:-384}m"
+          memory: "${REDIS_MEMORY_LIMIT_MIB:-256}m"
 
   app:
-    build: ./app
+    build:
+      context: ./app
+      args:
+        NODE_IMAGE: *node-image
     image: localhost/aab-fastify-postgres-redis-app:latest
     environment:
       WORKERS: ${APP_WORKERS:-2}
@@ -74,6 +118,9 @@ services:
       DATABASE_URL: postgres://store:${POSTGRES_PASSWORD:-store-local-only}@postgres:5432/store
       REDIS_URL: redis://redis:6379
       LOG_LEVEL: warn
+      # Applies to the primary and to each worker: V8 would otherwise size its heap from the
+      # memory it can see, which is not this container's limit.
+      NODE_OPTIONS: --max-old-space-size=${NODE_HEAP_MIB:-160}
     ports:
       - "${APP_HOST_PORT:-39926}:3000"
     networks: [store]
@@ -83,7 +130,7 @@ services:
       resources:
         limits:
           cpus: "${APP_CPUS:-1.25}"
-          memory: "${APP_MEMORY_MIB:-640}m"
+          memory: "${APP_MEMORY_LIMIT_MIB:-512}m"
 
   # Seeding is not measured and runs outside the target's budget.
   loader:
