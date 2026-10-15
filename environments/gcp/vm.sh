@@ -2,7 +2,7 @@
 # vm.sh — create, reach, and delete the tier-2 benchmark VM on GCP.
 #
 # Ran 2026-10-14 (README "Qualification"): preflight, up, status, describe, ssh, push, pull, down.
-# NAT mode, C4A, and metal have not run. Read `vm.sh up --dry-run` output before a real run.
+# NAT mode and metal have not run; C4A ran 2026-10-15. Read `vm.sh up --dry-run` output before a real run.
 #
 #   vm.sh preflight                 auth, billing, quota, and org-policy checks (read only)
 #   vm.sh up [--dry-run]            network + IAP rule (+ Cloud NAT if needed), then the VM

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # probe-clock.sh — qualify an instance type: can it count cycles, and does its clock hold?
 #
-# Ran 2026-10-14 on c4-standard-16-lssd (README "Qualification").
+# Ran 2026-10-14 on c4-standard-16-lssd and 2026-10-15 on c4a-standard-16-lssd (README "Qualification").
 #
 #   sudo bash probe-clock.sh [OUT_DIR] [SECONDS]
 #
@@ -23,6 +23,10 @@ TARGET_CPUS="$(cat /sys/fs/cgroup/bench.slice/bench-target.slice/cpuset.cpus.eff
 GENERATOR_CPUS="$(cat /sys/fs/cgroup/bench.slice/bench-generator.slice/cpuset.cpus.effective)"
 FAIL=()
 count() { awk -F, '{for(i=1;i<=NF;i++){split($i,r,"-"); n+=(r[2]==""?1:r[2]-r[1]+1)}} END{print n}' <<<"$1"; }
+cpus() { local r c; for r in ${1//,/ }; do for ((c = ${r%-*}; c <= ${r#*-}; c++)); do echo "$c"; done; done; }   # "0-1,4" -> 0 1 4
+# CPUs no slice uses: 8-15 on a 16-core shape such as c4a-standard-16-lssd. "All busy" loads them too.
+in_layout=" $(cpus "$(cat /sys/fs/cgroup/user.slice/cpuset.cpus.effective),$TARGET_CPUS,$GENERATOR_CPUS" | tr '\n' ' ')"
+EXTRA_CPUS="$(for c in $(cpus "$(cat /sys/devices/system/cpu/online)"); do [[ "$in_layout" == *" $c "* ]] || echo "$c"; done | paste -sd, -)"
 mkdir -p "$OUT"
 
 {
@@ -40,7 +44,7 @@ mkdir -p "$OUT"
 	echo "== guest-reported MHz (a counter-derived snapshot, not a clock record)"
 	grep -m1 'cpu MHz' /proc/cpuinfo || echo "none (arm64 reports no MHz)"
 	echo "== nmi_watchdog (1 holds a PMU counter per CPU; host-setup.sh sets 0)"
-	cat /proc/sys/kernel/nmi_watchdog
+	cat /proc/sys/kernel/nmi_watchdog 2>/dev/null || echo "absent"
 } | tee "$OUT/platform.txt"
 
 # One busy worker per CPU in a slice. Runs inside the slice, so it also proves the slice's
@@ -49,7 +53,12 @@ burn() { # burn <slice> <cpus>
 	systemd-run --quiet --scope --slice="$1" stress-ng --cpu "$(count "$2")" --cpu-method int64 --timeout "${SECS}s" >/dev/null &
 }
 load_target_only() { burn bench-target.slice "$TARGET_CPUS"; }
-load_all() { burn bench-target.slice "$TARGET_CPUS"; burn bench-generator.slice "$GENERATOR_CPUS"; burn user.slice "$(cat /sys/fs/cgroup/user.slice/cpuset.cpus.effective)"; }
+load_all() {
+	burn bench-target.slice "$TARGET_CPUS"; burn bench-generator.slice "$GENERATOR_CPUS"; burn user.slice "$(cat /sys/fs/cgroup/user.slice/cpuset.cpus.effective)"
+	# Its own top-level slice: in system.slice the 0-1 cpuset would win over AllowedCPUs.
+	[ -z "$EXTRA_CPUS" ] || systemd-run --quiet --scope --slice=probe-extra.slice -p AllowedCPUs="$EXTRA_CPUS" \
+		stress-ng --cpu "$(count "$EXTRA_CPUS")" --cpu-method int64 --timeout "${SECS}s" >/dev/null &
+}
 
 probe() { # probe <name> <load function>: start the load, count cycles on the target CPUs only
 	"$2"

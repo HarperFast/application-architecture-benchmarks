@@ -1,0 +1,8 @@
+
+ Performance counter stats for 'system wide':
+
+       47658956166      cycles                           bench.slice/bench-target.slice #    2.986 GHz                       
+          15958.20 msec task-clock                       bench.slice/bench-target.slice #    1.995 CPUs utilized             
+
+       8.001100128 seconds time elapsed
+

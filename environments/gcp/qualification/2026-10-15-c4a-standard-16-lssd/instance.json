@@ -1,0 +1,53 @@
+{
+  "machineType": "c4a-standard-16-lssd",
+  "zone": "us-east1-b",
+  "cpuPlatform": "Google Axion",
+  "advancedMachineFeatures": {
+    "performanceMonitoringUnit": "ARCHITECTURAL"
+  },
+  "scheduling": {
+    "onHostMaintenance": "MIGRATE",
+    "automaticRestart": true,
+    "provisioningModel": "STANDARD",
+    "instanceTerminationAction": "DELETE",
+    "maxRunDuration": {
+      "nanos": 0,
+      "seconds": "28800"
+    }
+  },
+  "disks": [
+    {
+      "type": "PERSISTENT",
+      "interface": "NVME",
+      "diskSizeGb": "50"
+    },
+    {
+      "type": "SCRATCH",
+      "interface": "NVME",
+      "diskSizeGb": "375"
+    },
+    {
+      "type": "SCRATCH",
+      "interface": "NVME",
+      "diskSizeGb": "375"
+    },
+    {
+      "type": "SCRATCH",
+      "interface": "NVME",
+      "diskSizeGb": "375"
+    },
+    {
+      "type": "SCRATCH",
+      "interface": "NVME",
+      "diskSizeGb": "375"
+    }
+  ],
+  "nicType": [
+    "GVNIC"
+  ],
+  "labels": {
+    "comparison": "gcp-qualification",
+    "session": "20261015t1558"
+  },
+  "creationTimestamp": "2026-10-15T09:01:46.860-07:00"
+}

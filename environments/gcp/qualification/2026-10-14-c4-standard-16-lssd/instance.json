@@ -38,7 +38,6 @@
     "GVNIC"
   ],
   "labels": {
-    "arch-bench": "arch-bench-ethan",
     "comparison": "gcp-qualification",
     "session": "20261014t2037"
   },

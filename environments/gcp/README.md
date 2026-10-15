@@ -2,7 +2,7 @@
 
 How to run a [stack comparison](../../README.md#stack-comparisons) on a dedicated Linux VM on Google Cloud: the same containers, budgets, and harness as [tier 1](../../README.md#environment-tiers), on a host where cgroup limits, per-target CPU accounting, and the clock can be trusted enough to publish.
 
-> **Status, 2026-10-14: C4 qualified; no target has run.** One session on `c4-standard-16-lssd` ran every script here and fixed what broke ([Qualification](#qualification-2026-10-14)). The slices hold, cycles count per cgroup under GCP's virtual PMU, and the clock held at 3.898 GHz within 0.3%. No benchmark target has run on tier 2 yet, and the C4A probe, the Cloud NAT path, and bare metal are untested. [Decisions](#decisions) records the choices made before that session, and [known gaps](#known-gaps) lists what the harness still has to gain.
+> **Status, 2026-10-15: C4 qualified, C4A probed; no target has run.** One session on `c4-standard-16-lssd` ran every script here and fixed what broke, and one probe session on `c4a-standard-16-lssd` compared its clock ([Qualification](#qualification)). The slices hold, cycles count per cgroup under GCP's virtual PMU, and the clock held within 0.3% on both: 3.898 GHz on C4, 2.987 GHz on C4A. No benchmark target has run on tier 2 yet, and the Cloud NAT path and bare metal are untested. [Decisions](#decisions) records the choices made before that session, and [known gaps](#known-gaps) lists what the harness still has to gain.
 
 | File | Runs on | Purpose |
 |-|-|-|
@@ -32,7 +32,7 @@ What a shared host leaves uncontrolled: other tenants share the socket's L3 cach
 | Option | Clock | Neighbours | On-demand, us-central1 | Use |
 |-|-|-|-|-|
 | **C4 VM**, ALL_CORE_MAX, PMU, SMT off | Bounded and measured: 3.898 GHz, 0.3% spread (2026-10-14) | Share L3 and memory bandwidth | $0.97/h for `c4-standard-16-lssd` | Every session (recommended) |
-| C4A VM (Axion, arm64), PMU | Measured. Google says Arm processors run at all-core turbo, but documents no frequency for Axion | Same | $0.97/h for `c4a-standard-16-lssd` (16 cores, 4 × 375 GiB SSD) | One probe session for comparison; not the default |
+| C4A VM (Axion, arm64), PMU | Measured: 2.987 GHz under every load tried, 0.2% spread (2026-10-15), with no turbo setting. Google documents no frequency for Axion | Same | $0.97/h for `c4a-standard-16-lssd` (16 cores, 4 × 375 GiB SSD) | One probe session for comparison; not the default |
 | Sole-tenant node, `c4-node-192-384` | As C4 VM (not verified on sole tenancy) | None | ~$9/h for the whole node | One verification session at most; never the default |
 | Bare metal, `c4-standard-288-lssd-metal` | Possibly pinnable: whether the OS gets P-state control on GCP bare metal is undocumented | None | ~$18/h plus SSD | One verification session at most; never the default. The only option that might allow pinning, to be checked on first boot |
 | N2, C3, C2, and other series without a guest PMU | Neither bounded nor observable | Shared | | Not usable for an efficiency figure; `vm.sh` refuses them |
@@ -52,7 +52,7 @@ What a shared host leaves uncontrolled: other tenants share the socket's L3 cach
 - `--no-service-account --no-scopes`, a dedicated network, and SSH only through IAP.
 - Egress through an ephemeral external IPv4 address; the only inbound path is SSH through IAP. If the organization policy `constraints/compute.vmExternalIpAccess` blocks external addresses, which `vm.sh preflight` reports, `vm.sh up` creates the VM with `--no-address` and puts Cloud NAT (`arch-bench-router`, `arch-bench-nat`) on `arch-bench-net`, and `vm.sh down` removes it again. `NETWORK_MODE=external` or `nat` overrides the detection. The measured path is the same either way: target and generator talk over the compose bridge, not through the VM's network interface.
 
-The region is a cost and availability choice with no effect on the measurement, since nothing crosses a WAN. The zone is whichever has capacity: on 2026-10-14, `us-central1-a` and `-b` had no `c4-standard-16-lssd` capacity and `-c` did. `vm.sh up` tries `ZONE` (default `us-central1-a`) and then the region's other zones, and every other subcommand looks up the VM's zone itself.
+The region is a cost and availability choice with no effect on the measurement, since nothing crosses a WAN. The zone is whichever has capacity: on 2026-10-14, `us-central1-a` and `-b` had no `c4-standard-16-lssd` capacity and `-c` did. `vm.sh up` tries `ZONE` (default `us-central1-a`) and then the region's other zones, and every other subcommand looks up the VM's zone itself. On 2026-10-15 no us-central1 zone had `c4a-standard-16-lssd` and `us-east1-b` did, at the same price; `up` does not leave the region on its own, so another region takes `ZONE=<zone>`.
 
 ### CPU layout
 
@@ -261,7 +261,9 @@ Every raw sample is kept with the comparison. Nothing on the VM survives `down`.
 - **Generator:** CPU load and dispatch lag per step, shed arrivals, generator slice CPU.
 - **Measured behaviour:** cache-hit rates, write failures, invalidations.
 
-## Qualification, 2026-10-14
+## Qualification
+
+### C4, 2026-10-14
 
 The first session ran every script on `c4-standard-16-lssd` in `us-central1-c`, with Debian 13, kernel 6.12.111 (cloud), Docker 29.9.1, and perf 6.12.111. It took 24 minutes of VM time, about $0.39. No benchmark target ran; a synthetic load stood in for one. Raw probe output, the instance's GCP-side settings, and the synthetic load are in [`qualification/2026-10-14-c4-standard-16-lssd`](qualification/2026-10-14-c4-standard-16-lssd).
 
@@ -286,9 +288,24 @@ What the session corrected, besides the bugs found by reading the scripts first:
 - **IRQ report.** It read where each IRQ last fired rather than where it is allowed to, so IRQs that never fire looked unmoved.
 - **The clock text.** The guest has a cpufreq driver and `/proc/cpuinfo` reports a live estimate; neither can move or record the clock.
 
+### C4A, 2026-10-15
+
+The one C4A probe session of [decision 6](#decisions) ran `host-setup.sh`, the slice checks, and `probe-clock.sh` on `c4a-standard-16-lssd`, with the same Debian 13 kernel, Docker, and perf built for arm64. No us-central1 zone had capacity, so it ran in `us-east1-b`, at the same price. It took 7 minutes of VM time, about $0.12. Raw output is in [`qualification/2026-10-15-c4a-standard-16-lssd`](qualification/2026-10-15-c4a-standard-16-lssd).
+
+| Check | Result |
+|-|-|
+| Instance | Google Axion (Neoverse-V2), architectural PMU with one cycle counter and four general counters, 16 cores, 4 × 375 GiB Titanium SSD as RAID 0, one NUMA node; `--maintenance-policy=MIGRATE` accepted |
+| `host-setup.sh`, slices, memory budget | Same scripts, same results as C4. CPUs 8–15 are outside the default layout and idle |
+| Clock | Median 2.987 GHz with only the target busy, with CPUs 0–7 busy, and with all 16 busy; spread 0.0–0.2%. The firmware's model string says 3.0 GHz, and the guest has no cpufreq driver |
+| Cycles per cgroup | 47.7 billion cycles over 16.0 s of task-clock in an 8 s window: 2.986 GHz at 1.995 CPUs |
+
+Axion's clock did not move under any load tried, so a C4A result would read "measured at 2.99 GHz" with no turbo setting to choose. It has fewer PMU counters than C4: `sample.sh`'s events for two slices fit, but counting per container would multiplex. C4 stays the default; switching needs a further decision.
+
+The session changed one script. The probe's busy-everything phase now also loads CPUs outside the layout, from a slice of their own, because a scope in `system.slice` stays on CPUs 0–1 whatever its `AllowedCPUs` says.
+
 ## Known gaps
 
-- **Untested:** the C4A probe session ([decision 6](#decisions)), the Cloud NAT path, bare metal, a live migration during a session, and any real target.
+- **Untested:** the Cloud NAT path, bare metal, a live migration during a session, and any real target.
 - **No join yet.** Nothing turns `sample.sh` output and a run record into per-step gigacycles, effective frequency, and per-component CPU. It needs absolute step times in the run record first, then a small script, which belongs with the shared harness. The qualification's one-off join of a synthetic load shows the data supports it.
 - **No comparison-level orchestrator.** Interleaving targets, restoring, dropping caches, and stopping the other target is a loop that belongs in the comparison's directory once a second target exists. Until then it is the steps under [trials](#5-trials).
 - **The Harper reference harness** needs placement, accounting, and lifecycle changes before its first tier-2 run. Placement is blocking: without it, the target lands in `system.slice` on the housekeeping CPUs. See [`ecommerce-store-gaps.md`](ecommerce-store-gaps.md).
@@ -302,7 +319,7 @@ Made 2026-10-12, before the first session.
 3. **Clock rule:** "all-core turbo, measured" satisfies it where the clock cannot be pinned. The top-level README's tier-2 paragraph and first [measurement rule](../../README.md#measurement-rules) say so: pin where the host allows it; otherwise bound it, count cycles per target, record the effective frequency, and publish "all-core turbo, measured at N GHz", never "pinned".
 4. **Bare metal and sole tenancy:** one verification session at most, to find out whether bare metal gives the OS frequency control and how far its results differ from the VM's. Never the default.
 5. **Drift threshold:** 2% from the session median, or three times the session probe's measured spread, whichever is larger.
-6. **Architecture:** C4 (x86-64) is the default. One probe session on C4A (`MACHINE=c4a-standard-16-lssd vm.sh up`, then `host-setup.sh` and `probe-clock.sh`; the default layout uses 8 of its 16 cores) compares its clock behaviour. C4A does not become the default without a further decision.
+6. **Architecture:** C4 (x86-64) is the default. One probe session on C4A (`MACHINE=c4a-standard-16-lssd vm.sh up`, then `host-setup.sh` and `probe-clock.sh`; the default layout uses 8 of its 16 cores) compares its clock behaviour. C4A does not become the default without a further decision. Probed 2026-10-15: see [C4A](#c4a-2026-10-15).
 7. **Snapshots:** no reuse across sessions; every session re-seeds every target.
 8. **Access and egress:** the benchmark maintainer who creates the project owns it and is its only member to start; others are added on request. VMs get an external IPv4 address by default. Where `constraints/compute.vmExternalIpAccess` blocks that, the fallback is `--no-address` plus Cloud NAT on `arch-bench-net`, which `vm.sh` supports but has not run: the organization allowed external addresses on 2026-10-14.
 

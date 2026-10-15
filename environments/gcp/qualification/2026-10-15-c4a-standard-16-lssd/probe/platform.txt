@@ -1,0 +1,18 @@
+== platform
+CPU(s):                                  16
+Model name:                              Neoverse-V2
+BIOS Model name:                         Axion  CPU @ 3.0GHz
+Thread(s) per core:                      1
+Core(s) per socket:                      16
+Socket(s):                               1
+NUMA node(s):                            1
+NUMA node0 CPU(s):                       0-15
+Google Axion
+== PMU as the kernel sees it
+[    0.492698] hw perfevents: enabled with armv8_pmuv3_0 PMU driver, 5 (0,8000000f) counters available
+== cpufreq
+absent
+== guest-reported MHz (a counter-derived snapshot, not a clock record)
+none (arm64 reports no MHz)
+== nmi_watchdog (1 holds a PMU counter per CPU; host-setup.sh sets 0)
+0
