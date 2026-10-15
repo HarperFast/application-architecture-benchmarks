@@ -11,6 +11,7 @@
 #                                         ladder with per-container CPU, verify, join cycles (tier 2)
 #   scripts/run.sh audit                  fpr only: cached vs source-of-truth responses, after a run
 #   scripts/run.sh coherence <target>     the reference's verify-coherence.mjs (readers racing writers)
+#   scripts/run.sh timing <target>        diagnostic: the target's Server-Timing phases, one request at a time
 #   scripts/run.sh stop                   stop every container in this project
 #
 # Targets: `fpr` (Fastify + Postgres + Redis), `harper` (the reference, built from the
@@ -638,6 +639,22 @@ coherence() {
 	restore "$target"
 }
 
+# Diagnostic, not a measurement: the target's own Server-Timing phases (data, compute, total), one
+# request at a time, on a freshly restored target after a short warm-up of the hottest keys.
+timing() {
+	local target="$1" stamp out
+	stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+	out="$RAW/timing-$target-$stamp.json"
+	for t in $(all_targets); do stop_target "$t"; done
+	restore "$target"
+	cold_start "$target"
+	say "Server-Timing diagnostic against $target"
+	node "$HERE/scripts/server-timing.mjs" --url "http://localhost:$(port_of "$target")" --dataset "$HARNESS_DATASET_HOST" \
+		--ecommerce-store "$ECOMMERCE_STORE_DIR" ${TIMING_ARGS:-} > "$out"
+	stop_target "$target"
+	echo "$out"
+}
+
 audit() {
 	say "coherence audit: cached responses vs responses computed from Postgres alone"
 	sleep 2 # writes have stopped; FRESH_MS is 1000
@@ -656,6 +673,7 @@ case "$cmd" in
 	bench) setup; TRIALS="${TRIALS:-1}"; bench "${1:?target}" ;;
 	audit) setup; audit ;;
 	coherence) setup; coherence "${1:?target}" ;;
+	timing) setup; timing "${1:?target}" ;;
 	stop) setup; for t in $(all_targets); do stop_target "$t"; done ;;
 	*) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 1 ;;
 esac
