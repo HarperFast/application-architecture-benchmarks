@@ -10,7 +10,7 @@ The first two sessions ran on 2026-10-15 and 16 ([findings-tier2.md](findings-ti
 
 | Input | Value |
 |-|-|
-| ecommerce-store | `main` from SPEC `0.3.0-draft` and dataset generator 0.6.0 (HarperFast/ecommerce-store#7), with the reference's SKU-aware promotion lookup. The first two sessions ran `f47978b`, generator 0.5.0 |
+| ecommerce-store | `main` at `8c43963`: SPEC `0.3.0-draft` and dataset generator 0.6.0 (HarperFast/ecommerce-store#7), with the reference's SKU-aware promotion lookup (#8). The first two sessions ran `f47978b`, generator 0.5.0 |
 | application-architecture-benchmarks | the commit of this runbook: `main` from `2529e09`, where `environments/gcp` (#5) and this comparison (#6) merged, or the session's own branch |
 | Machine | `c4-standard-16-lssd`, ALL_CORE_MAX, PMU, SMT off (`environments/gcp` "Instance") |
 | Ladder | `50,100,150,200,300,450,600,800,1200,1600,2400` rps, 60 s steps; 50% quotes, 20 writes/s. The first two sessions ran `25,50,100,200,400,800,1600`, which put each knee within one step |

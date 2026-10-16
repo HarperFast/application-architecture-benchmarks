@@ -1,0 +1,40 @@
+{
+  "a": "http://localhost:39936",
+  "b": "http://localhost:39926",
+  "sample": {
+    "cartStride": 1,
+    "productStride": 1,
+    "carts": 2000,
+    "products": 2000,
+    "tiers": [
+      "standard",
+      "silver",
+      "gold",
+      "platinum",
+      "unlisted-tier"
+    ],
+    "regions": [
+      "us-east",
+      "us-west",
+      "eu-central",
+      "apac"
+    ]
+  },
+  "compared": 42004,
+  "equal": 42004,
+  "statusMismatch": 0,
+  "bodyMismatch": 0,
+  "byKind": {
+    "quote": {
+      "compared": 2001,
+      "equal": 2001,
+      "mismatched": 0
+    },
+    "product": {
+      "compared": 40003,
+      "equal": 40003,
+      "mismatched": 0
+    }
+  },
+  "examples": []
+}
