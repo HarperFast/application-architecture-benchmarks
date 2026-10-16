@@ -103,7 +103,7 @@ SESSION_MINUTES=$(( 480 - $(awk '{print int($1 / 60)}' /proc/uptime) - 60 ))   #
 
 Watch it with short ssh calls (`tail results/raw/trials.log`); every trial line names its verdict.
 
-Before the session, a short shakedown trial per target found two bugs on 2026-10-15 that would each have cost a trial: run each target once with a small warm-up and two steps (`RATES=25,50 BENCH_ARGS="--warmup-requests 3000 --warmup-rate 100" SAMPLE_SH=... CONDITIONS_SH=... scripts/run.sh bench <target>`). Verification fails it on the warm-up and on `DATA-004` by design; check the rest: the cycle join, the per-cgroup memory lines, the reference's memory-sizing record, the coherence audit. Move its files out of `results/raw` before the session.
+Before the session, run a short shakedown trial per target; on 2026-10-15 it found a coherence audit that would have run for hours after every `fpr` trial. Run each target once with a small warm-up and two steps (`RATES=25,50 BENCH_ARGS="--warmup-requests 3000 --warmup-rate 100" SAMPLE_SH=... CONDITIONS_SH=... scripts/run.sh bench <target>`). Verification fails it on the warm-up and on `DATA-004` by design; check the rest: the cycle join, the per-cgroup memory lines, the reference's memory-sizing record, the coherence audit. Move its files out of `results/raw` before the session.
 
 Keep a session on one commit of this repository: `run.sh` runs afresh for every trial, so a checkout changed mid-session gives later trials another commit.
 
