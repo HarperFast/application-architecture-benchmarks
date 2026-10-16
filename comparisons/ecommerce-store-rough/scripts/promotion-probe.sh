@@ -11,7 +11,7 @@
 # restored, cold-started, probed and stopped in turn; nothing else runs.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
-TIER="${1:-gold}"; shift || true
+CUSTOMER_TIER="${1:-gold}"; shift || true
 if [ $# -gt 0 ]; then CATS=("$@"); else CATS=(apparel-shirts electronics-audio home-kitchen); fi
 REPS="${REPS:-20}"
 set -a; . ./.env; set +a
@@ -25,10 +25,10 @@ median_ms() { # median_ms <url>: median of REPS request times in ms, and the row
 	printf '%s\n' "${times[@]}" | sort -n | awk -v rows="$rows" '{t[NR]=$1} END {printf "%6d rows  median %.2f ms  min %.2f ms\n", rows, t[int((NR+1)/2)]*1000, t[1]*1000}'
 }
 
-echo "tier=$TIER categories=${CATS[*]} reps=$REPS"
-scripts/run.sh start harper >/dev/null 2>&1
+echo "tier=$CUSTOMER_TIER categories=${CATS[*]} reps=$REPS"
+scripts/run.sh start harper >/dev/null
 base="http://localhost:${HARPER_HOST_PORT:-39936}/Promotion/"
-tiers="(tierKeys=$TIER|tierKeys=*)"
+tiers="(tierKeys=$CUSTOMER_TIER|tierKeys=*)"
 cats="($(printf 'categoryKeys=%s|' "${CATS[@]}")categoryKeys=*)"
 # One untimed pass over the table first, so the first timed condition does not pay for loading it.
 curl -sf -u "$HDB_ADMIN_USERNAME:$HDB_ADMIN_PASSWORD" -g "$base?select(id)" -o /dev/null
@@ -42,12 +42,12 @@ for select in '' '&select(id)'; do
 done
 scripts/run.sh stop >/dev/null 2>&1
 
-scripts/run.sh start fpr >/dev/null 2>&1
+scripts/run.sh start fpr >/dev/null
 CLI="$(command -v docker >/dev/null && docker version >/dev/null 2>&1 && echo docker || echo podman)"
 arr() { local IFS=,; echo "{$*}"; }
 echo "== fpr: EXPLAIN (ANALYZE, BUFFERS), second execution"
 for _ in 1 2; do
-	out="$("$CLI" exec aab-ecommerce-rough-postgres-1 psql -U store -d store -At -c "EXPLAIN (ANALYZE, BUFFERS) SELECT id, kind, tiers, skus, category_ids, threshold_minor, amount_minor, amount_basis_points FROM promotion WHERE tier_keys && '$(arr "$TIER" '*')'::text[] AND category_keys && '$(arr "${CATS[@]}" '*')'::text[] ORDER BY id")"
+	out="$("$CLI" exec aab-ecommerce-rough-postgres-1 psql -U store -d store -At -c "EXPLAIN (ANALYZE, BUFFERS) SELECT id, kind, tiers, skus, category_ids, threshold_minor, amount_minor, amount_basis_points FROM promotion WHERE tier_keys && '$(arr "$CUSTOMER_TIER" '*')'::text[] AND category_keys && '$(arr "${CATS[@]}" '*')'::text[] ORDER BY id")"
 done
 echo "$out" | sed 's/^/  /'
 scripts/run.sh stop >/dev/null 2>&1
