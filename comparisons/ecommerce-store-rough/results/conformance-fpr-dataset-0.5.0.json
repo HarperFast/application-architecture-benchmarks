@@ -6,7 +6,7 @@
     "commit": "f47978bfc956f859aa2a0bc417a77ea50e12b25e",
     "playwright": "1.63.0"
   },
-  "ranAt": "2026-10-15T20:26:00.314Z",
+  "ranAt": "2026-10-16T17:41:59.209Z",
   "passed": 24,
   "failed": 0,
   "skipped": 0,
@@ -45,7 +45,7 @@
         "CACHE-001"
       ],
       "status": "passed",
-      "durationMs": 71,
+      "durationMs": 69,
       "error": null
     },
     {
@@ -55,7 +55,7 @@
         "CACHE-003"
       ],
       "status": "passed",
-      "durationMs": 113,
+      "durationMs": 104,
       "error": null
     },
     {
@@ -66,7 +66,7 @@
         "OBS-002"
       ],
       "status": "passed",
-      "durationMs": 86,
+      "durationMs": 90,
       "error": null
     },
     {
@@ -77,7 +77,7 @@
         "OBS-003"
       ],
       "status": "passed",
-      "durationMs": 110,
+      "durationMs": 106,
       "error": null
     },
     {
@@ -87,7 +87,7 @@
         "WRITE-002"
       ],
       "status": "passed",
-      "durationMs": 109,
+      "durationMs": 134,
       "error": null
     },
     {
@@ -97,7 +97,7 @@
         "OBS-001"
       ],
       "status": "passed",
-      "durationMs": 90,
+      "durationMs": 78,
       "error": null
     },
     {
@@ -107,7 +107,7 @@
         "QUOTE-004"
       ],
       "status": "passed",
-      "durationMs": 721,
+      "durationMs": 785,
       "error": null
     },
     {
@@ -117,7 +117,7 @@
         "PDP-002"
       ],
       "status": "passed",
-      "durationMs": 18,
+      "durationMs": 31,
       "error": null
     },
     {
@@ -127,7 +127,7 @@
         "PDP-003"
       ],
       "status": "passed",
-      "durationMs": 36,
+      "durationMs": 37,
       "error": null
     },
     {
@@ -137,7 +137,7 @@
         "PDP-004"
       ],
       "status": "passed",
-      "durationMs": 13,
+      "durationMs": 14,
       "error": null
     },
     {
@@ -147,7 +147,7 @@
         "PDP-001"
       ],
       "status": "passed",
-      "durationMs": 13,
+      "durationMs": 19,
       "error": null
     },
     {
@@ -157,7 +157,7 @@
         "PDP-005"
       ],
       "status": "passed",
-      "durationMs": 16,
+      "durationMs": 23,
       "error": null
     },
     {
@@ -167,7 +167,7 @@
         "QUOTE-001"
       ],
       "status": "passed",
-      "durationMs": 336,
+      "durationMs": 307,
       "error": null
     },
     {
@@ -177,7 +177,7 @@
         "QUOTE-003"
       ],
       "status": "passed",
-      "durationMs": 545,
+      "durationMs": 532,
       "error": null
     },
     {
@@ -187,7 +187,7 @@
         "QUOTE-005"
       ],
       "status": "passed",
-      "durationMs": 619,
+      "durationMs": 621,
       "error": null
     },
     {
@@ -197,7 +197,7 @@
         "QUOTE-006"
       ],
       "status": "passed",
-      "durationMs": 850,
+      "durationMs": 895,
       "error": null
     },
     {
@@ -207,7 +207,7 @@
         "QUOTE-007"
       ],
       "status": "passed",
-      "durationMs": 893,
+      "durationMs": 949,
       "error": null
     },
     {
@@ -217,7 +217,7 @@
         "DATA-002"
       ],
       "status": "passed",
-      "durationMs": 322,
+      "durationMs": 393,
       "error": null
     },
     {
@@ -227,7 +227,7 @@
         "QUOTE-002"
       ],
       "status": "passed",
-      "durationMs": 202,
+      "durationMs": 230,
       "error": null
     },
     {
@@ -237,7 +237,7 @@
         "QUOTE-011"
       ],
       "status": "passed",
-      "durationMs": 181,
+      "durationMs": 198,
       "error": null
     },
     {
@@ -247,7 +247,7 @@
         "QUOTE-012"
       ],
       "status": "passed",
-      "durationMs": 152,
+      "durationMs": 141,
       "error": null
     },
     {
@@ -257,7 +257,7 @@
         "QUOTE-008"
       ],
       "status": "passed",
-      "durationMs": 10,
+      "durationMs": 9,
       "error": null
     },
     {
@@ -277,7 +277,7 @@
         "QUOTE-010"
       ],
       "status": "passed",
-      "durationMs": 27,
+      "durationMs": 13,
       "error": null
     }
   ]
