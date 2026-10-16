@@ -14,31 +14,42 @@
  * Plain cache-aside has a well-known race: a reader misses, reads the OLD row, the writer
  * commits and deletes the key, then the reader stores the old row, which survives until expiry,
  * far longer than FRESH_MS. Both caches therefore carry GENERATIONS: a write sets a fresh,
- * unique token on a generation key alongside the delete, and a fill reads the generation BEFORE
- * it reads Postgres.
+ * unique token on a generation alongside the delete, and a fill reads the generation BEFORE it
+ * reads Postgres (in the same round trip as the cached values).
  *
  *   - Entities: the fill stores only if the generation is unchanged (Lua compare-and-set).
  *   - Product aggregates: the generations a view was built under are stored WITH it, and a read
- *     serves the view only if they still match the current ones (fetched in the same MGET).
+ *     serves the view only if they still match the current ones (fetched in the same round trip).
  *     Validity is checked against per-product (price) and per-product-region (inventory)
  *     generations, so it does not depend on the write surface deleting every key it affected.
  *
- * Generation keys outlive every cached value (GEN_TTL > VIEW_TTL, ENTITY_TTL, and many times the
- * Postgres statement timeout that bounds a fill), and tokens are unique, so expiry or eviction of
- * a generation key can only cause a miss or a discarded fill, never a stale value served.
+ * A generation must not disappear while a value it guards can still be served: a fill that read
+ * an absent generation stamps itself with the empty string, which would match again once the
+ * write's token was gone. So generations are FIELDS of one hash per kind,
+ *
+ *   g:<type>  field <id>                       entity generations (only variants are written)
+ *   g:pdp     fields <product>, <product>:<region>   aggregate generations (price, inventory)
+ *
+ * each field with its own expiry (HSETEX) and the hash key itself with none, under
+ * `maxmemory-policy volatile-lru` (redis.conf): every cached value carries a TTL and is evictable,
+ * while the generation hashes and the stats:cache counters are never evicted. A generation
+ * field lives GEN_TTL, longer than any cached value (GEN_TTL > VIEW_TTL, ENTITY_TTL, and many
+ * times the Postgres statement timeout that bounds a fill), and tokens are unique, so expiry of
+ * a generation can only cause a miss or a discarded fill, never a stale value served.
  */
 import { randomUUID } from 'node:crypto';
 import { createClient, defineScript } from 'redis';
 import { config } from './config.js';
 
 const COND_SET = defineScript({
-	// KEYS: key1, gen1, key2, gen2, ...   ARGV: ttlMs, expectedGen1, value1, expectedGen2, value2, ...
+	// KEYS: genHash, key1, key2, ...   ARGV: ttlMs, field1, expectedGen1, value1, field2, expectedGen2, value2, ...
 	SCRIPT: `
 local stored = 0
-for i = 1, #KEYS, 2 do
-  local current = redis.call('GET', KEYS[i + 1]) or ''
-  if current == ARGV[i + 1] then
-    redis.call('SET', KEYS[i], ARGV[i + 2], 'PX', ARGV[1])
+for i = 2, #KEYS do
+  local a = 3 * i - 4
+  local current = redis.call('HGET', KEYS[1], ARGV[a]) or ''
+  if current == ARGV[a + 1] then
+    redis.call('SET', KEYS[i], ARGV[a + 2], 'PX', ARGV[1])
     stored = stored + 1
   end
 end
@@ -52,13 +63,17 @@ return stored`,
 
 export const keys = {
 	entity: (type, id) => `e:${type}:${id}`,
-	entityGen: (type, id) => `g:${type}:${id}`,
+	/** The hash holding every generation of one entity type, one field per id. */
+	entityGens: (type) => `g:${type}`,
+	/** [hash, field] of one entity's generation. */
+	entityGen: (type, id) => [`g:${type}`, id],
 	/** CACHE-003 / PDP-002: every dimension the aggregate varies by is in the key. */
 	view: (productId, tier, region) => `pdp:${productId}:${tier}:${region}`,
+	viewGens: 'g:pdp',
 	/** Bumped by a price write: price is in every tier x region view of the product. */
-	productGen: (productId) => `g:pdp:${productId}`,
+	productGen: (productId) => ['g:pdp', productId],
 	/** Bumped by an inventory write: availability is in the views for that one region. */
-	regionGen: (productId, region) => `g:pdp:${productId}:${region}`,
+	regionGen: (productId, region) => ['g:pdp', `${productId}:${region}`],
 };
 
 export async function createRedis() {
@@ -102,31 +117,34 @@ export async function getEntities(redis, counters, type, ids, load) {
 	const unique = ids.length === 1 ? ids : [...new Set(ids)];
 	const found = new Map();
 	if (!unique.length) return found;
-	const cached = await redis.mGet(unique.map((id) => keys.entity(type, id)));
+	// One round trip: node-redis writes commands issued in the same tick together. The
+	// generations are read BEFORE Postgres; see the module comment.
+	const [cached, gens] = await Promise.all([
+		redis.mGet(unique.map((id) => keys.entity(type, id))),
+		redis.hmGet(keys.entityGens(type), unique),
+	]);
 	const misses = [];
 	for (let i = 0; i < unique.length; i++) {
-		if (cached[i] === null) misses.push(unique[i]);
+		if (cached[i] === null) misses.push(i);
 		else found.set(unique[i], JSON.parse(cached[i]));
 	}
 	counters.add(`${type}.hit`, unique.length - misses.length);
 	if (!misses.length) return found;
 	counters.add(`${type}.miss`, misses.length);
 
-	// Generations are read BEFORE Postgres; see the module comment.
-	const gens = await redis.mGet(misses.map((id) => keys.entityGen(type, id)));
-	const loaded = await load(misses);
-	const fillKeys = [];
+	const loaded = await load(misses.map((i) => unique[i]));
+	const fillKeys = [keys.entityGens(type)];
 	const fillArgs = [String(config.entityTtlMs)];
-	for (let i = 0; i < misses.length; i++) {
-		const entity = loaded.get(misses[i]);
+	for (const i of misses) {
+		const entity = loaded.get(unique[i]);
 		if (!entity) continue;
-		found.set(misses[i], entity);
-		fillKeys.push(keys.entity(type, misses[i]), keys.entityGen(type, misses[i]));
-		fillArgs.push(gens[i] ?? '', JSON.stringify(entity));
+		found.set(unique[i], entity);
+		fillKeys.push(keys.entity(type, unique[i]));
+		fillArgs.push(unique[i], gens[i] ?? '', JSON.stringify(entity));
 	}
 	// Not awaited: the response does not depend on the fill landing, and a fill that lost a race
 	// with a write is correctly discarded by the script.
-	if (fillKeys.length) redis.condSet(fillKeys, fillArgs).catch((error) => console.error('entity fill failed', error.message));
+	if (fillKeys.length > 1) redis.condSet(fillKeys, fillArgs).catch((error) => console.error('entity fill failed', error.message));
 	return found;
 }
 
@@ -136,30 +154,33 @@ export async function getEntities(redis, counters, type, ids, load) {
  * current generations for a fill to record.
  */
 export async function getView(redis, productId, tier, region) {
-	const [value, productGen, regionGen] = await redis.mGet([
-		keys.view(productId, tier, region),
-		keys.productGen(productId),
-		keys.regionGen(productId, region),
+	const [value, [productGen, regionGen]] = await Promise.all([
+		redis.get(keys.view(productId, tier, region)),
+		redis.hmGet(keys.viewGens, [keys.productGen(productId)[1], keys.regionGen(productId, region)[1]]),
 	]);
 	const stamp = `${productGen ?? ''}|${regionGen ?? ''}|`;
 	if (value !== null && value.startsWith(stamp)) return { json: value.slice(stamp.length), stamp };
 	return { json: null, stamp };
 }
 
-/** Store a freshly assembled view under the generations read before it was assembled. */
+/**
+ * Store a freshly assembled view under the generations read before it was assembled. The caller
+ * need not wait for it: a view stored after a write is stamped with the old generations and is
+ * never served.
+ */
 export function storeView(redis, productId, tier, region, stamp, json) {
 	return redis.set(keys.view(productId, tier, region), stamp + json, { expiration: { type: 'PX', value: config.viewTtlMs } });
 }
 
 /**
- * Invalidate atomically: set a fresh unique token on each generation key and delete the cached
- * keys, in one MULTI/EXEC. Resolves once Redis has applied it, so the write surface can respond
- * only after its invalidation is visible.
+ * Invalidate atomically: set a fresh unique token on each generation ([hash, field] pairs) and
+ * delete the cached keys, in one MULTI/EXEC. Resolves once Redis has applied it, so the write
+ * surface can respond only after its invalidation is visible.
  */
-export async function invalidate(redis, genKeys, cacheKeys) {
+export async function invalidate(redis, gens, cacheKeys) {
 	const token = randomUUID();
 	const multi = redis.multi();
-	for (const key of genKeys) multi.set(key, token, { expiration: { type: 'PX', value: config.genTtlMs } });
+	for (const [hash, field] of gens) multi.hSetEx(hash, { [field]: token }, { expiration: { type: 'PX', value: config.genTtlMs } });
 	if (cacheKeys.length) multi.del(cacheKeys);
 	await multi.exec();
 }

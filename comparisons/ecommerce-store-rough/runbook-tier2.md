@@ -131,9 +131,9 @@ Each `fpr` container has its own memory limit, and every process is sized from t
 
 | Container | Limit | Sizing |
 |-|-|-|
-| app | 512 MiB | 2 workers; Node heap cap 160 MiB per process (primary and each worker) |
+| app | 512 MiB | 2 workers; Node heap cap 160 MiB and semi-space 8 MiB per process (primary and each worker) |
 | postgres | 1,280 MiB | `shared_buffers` 320 MB, `effective_cache_size` 960 MB, `work_mem` 4 MB, `maintenance_work_mem` 64 MB (256 MB while loading) |
-| redis | 256 MiB | `maxmemory` 153 MB, `allkeys-lru` |
+| redis | 256 MiB | `maxmemory` 153 MB, `volatile-lru` (every cached value has a TTL; the invalidation generations do not) |
 
 `MEMORY_SPLIT=slice` removes the per-container memory limits (each container may use the slice's 2 GiB) while keeping the same process sizing; it is a sensitivity, not the default.
 

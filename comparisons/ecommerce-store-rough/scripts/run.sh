@@ -192,6 +192,14 @@ configure_budget() {
 	# Node: the primary and each worker get the same heap cap; about 190 MiB of the container is
 	# left for the primary, buffers and the page cache of the Node binary and modules.
 	export NODE_HEAP_MIB="${NODE_HEAP_MIB:-$(( (APP_MEMORY_MIB - 192) / APP_WORKERS ))}"
+	# The young generation, which --max-old-space-size does not set. Node 24's V8 derives it from
+	# the container limit and gives a 512 MiB container its minimum, a 1 MiB semi-space; above its
+	# low-memory class it uses a quarter of the limit for old space and a sixteenth of that per
+	# semi-space (measured: 16 MiB at 1 GiB, 32 at 2 GiB). That rule, applied to the app container:
+	# limit / 64 MiB, within V8's bounds of 1 and 64 (8 MiB at 512 MiB; 24 MiB of young
+	# generation per process at most).
+	local semi=$(( APP_MEMORY_MIB / 64 ))
+	export NODE_SEMI_SPACE_MIB="${NODE_SEMI_SPACE_MIB:-$(( semi < 1 ? 1 : semi > 64 ? 64 : semi ))}"
 	# Postgres: the manual's starting points, against the container.
 	export PG_SHARED_BUFFERS="${PG_SHARED_BUFFERS:-$(( PG_MEMORY_MIB / 4 ))MB}"
 	export PG_EFFECTIVE_CACHE_SIZE="${PG_EFFECTIVE_CACHE_SIZE:-$(( PG_MEMORY_MIB * 3 / 4 ))MB}"
@@ -208,7 +216,14 @@ configure_budget() {
 }
 
 base_of() { case "$1" in harper-unbatched) echo harper ;; *) echo "$1" ;; esac; }
-snapshot_of() { echo "$(base_of "$1")-$SCALE-dataset-$DATASET_GENERATOR.tar$([ "$SNAPSHOT_COMPRESS" = 1 ] && echo .gz)"; }
+# fpr's snapshot also names the schema, indexes and loader it was loaded with: a changed storage
+# parameter or index must not restore an older load (the reference's schema is the checkout's).
+FPR_APP="$REPO/implementations/fastify-postgres-redis/app"
+schema_tag() {
+	node -e 'const h = require("node:crypto").createHash("sha256"); for (const f of process.argv.slice(1)) h.update(require("node:fs").readFileSync(f)); console.log(h.digest("hex").slice(0, 8))' \
+		"$FPR_APP/sql/schema.sql" "$FPR_APP/sql/indexes.sql" "$FPR_APP/src/load-dataset.js"
+}
+snapshot_of() { echo "$(base_of "$1")-$SCALE-dataset-$DATASET_GENERATOR$([ "$1" = fpr ] && echo "-schema-$(schema_tag)").tar$([ "$SNAPSHOT_COMPRESS" = 1 ] && echo .gz)"; }
 services_of() { if [ "$1" = fpr ]; then echo "postgres redis app"; else echo "harper"; fi; }
 profile_of() { if [ "$1" != fpr ]; then echo "--profile harper"; fi; }
 port_of() { if [ "$1" = fpr ]; then echo "${APP_HOST_PORT:-39926}"; else echo "${HARPER_HOST_PORT:-39936}"; fi; }
@@ -420,7 +435,7 @@ conditions_json() {
 				    cpus: { app: env.APP_CPUS, postgres: env.PG_CPUS, redis: env.REDIS_CPUS },
 				    memoryMiB: { app: +env.APP_MEMORY_MIB, postgres: +env.PG_MEMORY_MIB, redis: +env.REDIS_MEMORY_MIB },
 				    memoryLimitMiB: { app: +env.APP_MEMORY_LIMIT_MIB, postgres: +env.PG_MEMORY_LIMIT_MIB, redis: +env.REDIS_MEMORY_LIMIT_MIB },
-				    sizing: { workers: +env.APP_WORKERS, nodeHeapMiB: +env.NODE_HEAP_MIB, pgSharedBuffers: env.PG_SHARED_BUFFERS, pgEffectiveCacheSize: env.PG_EFFECTIVE_CACHE_SIZE, pgWorkMem: env.PG_WORK_MEM || "4MB", redisMaxmemoryMB: +env.REDIS_MAXMEMORY_MB } }
+				    sizing: { workers: +env.APP_WORKERS, nodeHeapMiB: +env.NODE_HEAP_MIB, nodeSemiSpaceMiB: +env.NODE_SEMI_SPACE_MIB, pgSharedBuffers: env.PG_SHARED_BUFFERS, pgEffectiveCacheSize: env.PG_EFFECTIVE_CACHE_SIZE, pgWorkMem: env.PG_WORK_MEM || "4MB", redisMaxmemoryMB: +env.REDIS_MAXMEMORY_MB } }
 				: { mode: "single container", cgroup: env.TIER === "2" ? "/bench.slice/bench-target.slice" : null, targetCpus: +env.TARGET_CPUS, targetMemoryMiB: +env.TARGET_MEMORY_MIB, harperThreads: +(env.HARPER_THREADS || 2) },
 			lifecycle: { coldStartFirst200Ms: +cold, restoredFromSnapshot: true },
 			networking: "user-defined bridge (compose), plain HTTP; generator in a separate container on the same bridge",

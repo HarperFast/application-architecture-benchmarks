@@ -18,7 +18,12 @@
 #
 #   app       NODE_HEAP_MIB 160 per Node process (primary and 2 workers; anonymous memory measured
 #             about 200 MiB in total on dev, plus about 100 MiB of page cache for the Node binary
-#             and modules, which counts against the container)
+#             and modules, which counts against the container). NODE_SEMI_SPACE_MIB 8: Node 24's
+#             V8 sizes the young generation from the container limit, and treats 512 MiB as a
+#             low-memory device: a 1 MiB semi-space (3 MiB young generation), its minimum,
+#             measured in this image. Above that class it uses a quarter of the limit for old
+#             space and a sixteenth of that per semi-space (16 MiB at 1 GiB, 32 at 2 GiB,
+#             measured); 512 / 64 = 8 is that rule applied to this container
 #   postgres  shared_buffers 25% and effective_cache_size 75% of the container, work_mem 4MB
 #             (40 connections at most), maintenance_work_mem 64MB (the loader raises its own)
 #   redis     maxmemory about 60% of the container, leaving room for fragmentation, client
@@ -119,8 +124,9 @@ services:
       REDIS_URL: redis://redis:6379
       LOG_LEVEL: warn
       # Applies to the primary and to each worker: V8 would otherwise size its heap from the
-      # memory it can see, which is not this container's limit.
-      NODE_OPTIONS: --max-old-space-size=${NODE_HEAP_MIB:-160}
+      # memory it can see, which is not this container's limit. The semi-space is set as well:
+      # --max-old-space-size does not size the young generation (see the sizing note above).
+      NODE_OPTIONS: --max-old-space-size=${NODE_HEAP_MIB:-160} --max-semi-space-size=${NODE_SEMI_SPACE_MIB:-8}
     ports:
       - "${APP_HOST_PORT:-39926}:3000"
     networks: [store]

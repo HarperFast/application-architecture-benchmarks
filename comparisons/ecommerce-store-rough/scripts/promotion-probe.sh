@@ -47,7 +47,7 @@ CLI="$(command -v docker >/dev/null && docker version >/dev/null 2>&1 && echo do
 arr() { local IFS=,; echo "{$*}"; }
 echo "== fpr: EXPLAIN (ANALYZE, BUFFERS), second execution"
 for _ in 1 2; do
-	out="$("$CLI" exec aab-ecommerce-rough-postgres-1 psql -U store -d store -At -c "EXPLAIN (ANALYZE, BUFFERS) SELECT id, kind, tiers, skus, category_ids, threshold_minor, amount_minor, amount_basis_points FROM promotion WHERE tier_keys && '$(arr "$CUSTOMER_TIER" '*')'::text[] AND category_keys && '$(arr "${CATS[@]}" '*')'::text[] ORDER BY id")"
+	out="$("$CLI" exec aab-ecommerce-rough-postgres-1 psql -U store -d store -At -c "EXPLAIN (ANALYZE, BUFFERS) SELECT id, kind, tiers, skus, category_ids, threshold_minor, amount_minor, amount_basis_points FROM promotion WHERE tier_keys && '$(arr "$CUSTOMER_TIER" '*')'::text[] AND category_keys && '$(arr "${CATS[@]}" '*')'::text[]")"
 done
 echo "$out" | sed 's/^/  /'
 scripts/run.sh stop >/dev/null 2>&1

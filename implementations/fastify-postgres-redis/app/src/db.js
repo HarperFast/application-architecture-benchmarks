@@ -70,11 +70,15 @@ export const SQL = {
 	 * Candidate promotions. `tier_keys` / `category_keys` carry the dataset's '*' sentinel for an
 	 * unrestricted dimension, so array overlap against [value, '*'] returns a SUPERSET of the
 	 * eligible set through the GIN indexes; pricing.js applies the authoritative arrays.
+	 *
+	 * No ORDER BY: pricing.js sorts the candidates by id itself, and on `bench` a quote has about
+	 * 650 of them. Rows, not one json_agg row: building the JSON cost Postgres at least as much CPU
+	 * as it saved the app (implementation review P1b; measured on bench's promotions, tier 1).
 	 */
 	promotions: {
 		name: 'promotion_candidates',
 		text: `SELECT id, kind, tiers, skus, category_ids, threshold_minor, amount_minor, amount_basis_points
-		       FROM promotion WHERE tier_keys && $1::text[] AND category_keys && $2::text[] ORDER BY id`,
+		       FROM promotion WHERE tier_keys && $1::text[] AND category_keys && $2::text[]`,
 	},
 	locations: { name: 'locations_all', text: 'SELECT id, region, priority FROM location ORDER BY priority, id' },
 	rates: {

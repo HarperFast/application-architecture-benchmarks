@@ -79,11 +79,13 @@ CREATE TABLE variant (
 	weight      integer NOT NULL
 ) WITH (fillfactor = 90);
 
+-- Fully packed: on_hand is in the primary key's INCLUDE list, so an inventory update is never
+-- HOT and free space on the page would not be used for one.
 CREATE TABLE inventory (
 	sku          text    NOT NULL,
 	location_id  text    NOT NULL,
 	on_hand      integer NOT NULL
-) WITH (fillfactor = 90);
+) WITH (fillfactor = 100);
 
 CREATE TABLE cart (
 	id           text  NOT NULL,

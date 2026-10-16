@@ -114,7 +114,8 @@ export default async function productRoutes(app, { catalog, freshCatalog, redis,
 
 		const json = await assembleProduct(catalog, productId, tier, region, timer);
 		if (json === null) throw new HttpError(404, 'product_not_found', `unknown product: ${productId}`);
-		await timer.data(storeView(redis, productId, tier, region, view.stamp, json));
+		// Not awaited, like an entity fill: the response does not depend on it (see storeView).
+		storeView(redis, productId, tier, region, view.stamp, json).catch((error) => console.error('view fill failed', error.message));
 		reply.header('server-timing', timer.header('miss')).type('application/json; charset=utf-8');
 		return json;
 	});
