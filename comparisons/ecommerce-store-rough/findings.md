@@ -136,7 +136,7 @@ Everything in SPEC.md was implementable on Fastify + Postgres + Redis. These are
 
 ## Tier-2 readiness
 
-Not run yet; `bench` is never run locally. The orchestration for one tier-2 session follows ecommerce-store `main` at `f47978b`, whose harness fixes the warm-up per scale, runs 60 s steps with seeded Poisson arrivals on `bench`, joins the host's cycle samples to each step (`bench/cycles.mjs`), builds the reference from another commit (`TARGET_REF`, with `TARGET_IMAGE` naming this project's images), and verifies tier-2 placement, cycles, pinned base images and DATA-004's memory evidence per cgroup. It is in place and tested on `dev` with tier-1 placement: [runbook-tier2.md](runbook-tier2.md) is the procedure, and it lists what only the Linux host can test.
+The first two tier-2 sessions ran on 2026-10-15 and 16; what they found is in [findings-tier2.md](findings-tier2.md). `bench` is never run locally. The orchestration for a tier-2 session follows ecommerce-store `main` at `f47978b`, whose harness fixes the warm-up per scale, runs 60 s steps with seeded Poisson arrivals on `bench`, joins the host's cycle samples to each step (`bench/cycles.mjs`), builds the reference from another commit (`TARGET_REF`, with `TARGET_IMAGE` naming this project's images), and verifies tier-2 placement, cycles, pinned base images and DATA-004's memory evidence per cgroup. It is in place and tested on `dev` with tier-1 placement: [runbook-tier2.md](runbook-tier2.md) is the procedure, and it lists what only the Linux host can test.
 
 - **Placement.** [`compose.tier2.yaml`](compose.tier2.yaml) puts every target container, of either target, in `bench-target.slice` (CPUs 2-3, `MemoryMax=2G`) with no CPU quota, and the generator and loaders in `bench-generator.slice`, as ecommerce-store's own override does for the reference. Memory limits stay per container (above).
 - **Restore.** Each target's volume is archived once per session after seeding, with a clean shutdown first. Before every trial the volume is emptied and the archive extracted into it, the host's page cache is dropped, and every process of the target starts at once. Redis has no persistence, so it starts empty in every trial.
@@ -146,7 +146,7 @@ Not run yet; `bench` is never run locally. The orchestration for one tier-2 sess
 
 ## What the real comparison should look like
 
-1. Tier 2, `bench` dataset. `dev` measures HTTP, serialization and in-memory lookups; DATA-004 requires a working set beyond memory, where Postgres I/O, cache hit rates and the ranking can all change. The first tier-2 session is ready to run ([runbook](runbook-tier2.md)); it is exploratory, step 0 for tier 2.
+1. Tier 2, `bench` dataset. `dev` measures HTTP, serialization and in-memory lookups; DATA-004 requires a working set beyond memory, where Postgres I/O, cache hit rates and the ranking can all change. The first tier-2 sessions ran exploratory, step 0 for tier 2 ([findings-tier2.md](findings-tier2.md)), and every trial met `DATA-004`.
 2. Each target's budget as one parent cgroup, kernel time outside every cgroup measured and accounted, the static split as a stated sensitivity.
 3. A generator that is not the bottleneck at the stack's knee, validated against the current one at low rates.
 4. Both implementations reviewed first, steelman and adversarial, including giving the reference's quote path the same batching, so the comparison measures architecture rather than one implementation's read pattern.

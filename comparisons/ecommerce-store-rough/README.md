@@ -2,7 +2,7 @@
 
 The [step-0 rough benchmark](../../README.md#0-rough-benchmark-first) for the ecommerce-store application: the Harper reference against [Fastify + Postgres + Redis](../../implementations/fastify-postgres-redis), both containerized on one local machine. The output is [findings.md](findings.md). Nothing here is a result; tier-1 numbers are signal only, and the `dev` dataset fits in memory, so it is never a benchmark target.
 
-The same orchestration runs one tier-2 session on the GCP host of [`environments/gcp`](../../environments/gcp/README.md) against the `bench` dataset: [runbook-tier2.md](runbook-tier2.md). The first such session is exploratory, step 0 for tier 2.
+The same orchestration runs tier-2 sessions on the GCP host of [`environments/gcp`](../../environments/gcp/README.md) against the `bench` dataset: [runbook-tier2.md](runbook-tier2.md). The first two, exploratory (step 0 for tier 2), are in [findings-tier2.md](findings-tier2.md).
 
 ## What is compared
 
@@ -46,7 +46,9 @@ node scripts/report.mjs results/raw/session-<stamp>.log > results/session-<stamp
 | `busy.mjs` | Instantaneous CPU of other containers before a trial (`podman stats` reports lifetime averages) |
 | `host-load.sh` | macOS host CPU outside the VM during a trial (the VM's vCPUs share the laptop's cores with everything else) |
 | `diff-reference.mjs` | Differential correctness: all 2,000 quotes and all 2,000 products x 5 tiers x 4 regions, both targets, freshly restored |
-| `audit-coherence.mjs` | After a run: cached `fpr` responses vs the same responses computed from Postgres alone |
+| `audit-coherence.mjs` | After a run: cached `fpr` responses vs the same responses computed from Postgres alone, for the products the run wrote (rebuilt from its run record), a stride of the rest and the hottest carts |
+| `server-timing.mjs` | Diagnostic (`run.sh timing <target>`): a target's own `Server-Timing` phases, one request at a time, on its hottest keys |
+| `promotion-probe.sh` | Diagnostic: the quote's promotion candidate lookup on both targets, the reference's indexed search timed by condition and `fpr`'s `EXPLAIN ANALYZE` |
 | `conformance-report.mjs` | Playwright JSON to a per-requirement conformance report |
 | `report.mjs` | A session's trials to median [min-max] tables and a compact JSON |
 

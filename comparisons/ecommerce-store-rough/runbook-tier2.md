@@ -4,7 +4,7 @@ The first tier-2 session is exploratory: step 0 for tier 2, not a publishable re
 
 The host is set up, qualified and torn down exactly as `environments/gcp/README.md` says; this runbook does not repeat it, and points to its section for each of those steps.
 
-What is tested and what is not is listed at the end. Nothing in the tier-2 path that needs the Linux host (slices, Docker's cgroup layout, `perf`, `sample.sh`, `conditions.sh`, `drop_caches` on the host) has run yet.
+The first two sessions ran on 2026-10-15 and 16 ([findings-tier2.md](findings-tier2.md)): every step below, every target, 12 trials, none set aside. What they changed, and what is still untested, is listed at the end.
 
 ## Pinned inputs
 
@@ -22,6 +22,8 @@ What is tested and what is not is listed at the end. Nothing in the tier-2 path 
 ## 1. Provision, set up the host, qualify the clock
 
 `environments/gcp/README.md`, "Session procedure" steps 1 and 2. Keep the session directory `S=/mnt/lssd/out/$SESSION` and the probe's drift threshold; everything below runs on the VM, inside `tmux`.
+
+`c4-standard-16-lssd` capacity comes and goes by zone and region. On 2026-10-15, us-central1 and us-east1 had none for hours while us-east5-a and later us-east4-a did; `vm.sh up` tries only one region, so pass `ZONE=<zone>` for another. The project's C4 quota is set per region (us-west1 has none); `vm.sh preflight` shows the quota of `ZONE`'s region.
 
 ## 2. Code and data
 
@@ -51,10 +53,10 @@ scripts/run.sh load harper    # build the reference image, seed it over its oper
 
 | | `fpr` | `harper` |
 |-|-|-|
-| Estimate | 10-20 min. Verification takes about 6 s and client-side encoding about 45 s (measured locally on `bench`, without loading); the rest is Postgres writing about 6 GB on two cores inside a 1,280 MiB container, then the indexes and foreign keys | about 20 min (`environments/gcp` step 3) |
-| Disk | about 7 GB volume plus a 7 GB uncompressed snapshot | the reference's volume plus its snapshot |
+| Measured, 2026-10-15 | 2 min 56 s: inventory's 31.3 million rows in 42 s, keys, indexes and foreign keys in 43 s | 21 min 53 s and 21 min 43 s |
+| Snapshot | 6.9 GB uncompressed; a restore takes about 20 s | 6.5 GB uncompressed |
 
-The `fpr` loader runs in the generator slice; Postgres stays in the target slice with the same memory sizing it is measured under, so a load that does not fit there fails here rather than during a trial. The `harper-unbatched` build restores `harper`'s snapshot and has no load of its own; `scripts/session.sh` builds it.
+The `fpr` loader runs in the generator slice; Postgres stays in the target slice with the same memory sizing it is measured under, so a load that does not fit there fails here rather than during a trial. The `harper-unbatched` build restores `harper`'s snapshot and has no load of its own; `scripts/session.sh` builds it (or `scripts/run.sh build harper-unbatched`).
 
 ## 5. Run the session
 
@@ -82,13 +84,13 @@ A trial that fails verification or the cycle join, saw a maintenance event, or h
 
 ### What fits before the VM deletes itself
 
-The VM deletes itself 8 h after boot (`vm.sh`, `MAX_RUN`). A trial takes about 30 min: 1 min of restore and cold start, 20 min of warm-up, seven 60 s steps with their drains (about 8 min), and 1 to 2 min of checks. Before the session:
+The VM deletes itself 8 h after boot (`vm.sh`, `MAX_RUN`). A trial took 28 to 29 min on 2026-10-15: under a minute of restore and cold start, 20 min of warm-up, seven 60 s steps with their drains, and about a minute of checks. Before the session (measured times in brackets):
 
 | Phase | Time |
 |-|-|
-| Provision, host setup, clock probe (steps 1-2) | about 30 min |
-| Code and data, the workspace install (step 2) | about 15 min |
-| Seeding `fpr` and `harper` (step 4) | about 40 min |
+| Provision, host setup, clock probe (steps 1-2) | about 30 min [15 min] |
+| Code and data, the workspace install (step 2) | about 15 min [under 2 min] |
+| Seeding `fpr` and `harper` (step 4) | about 40 min [25 min] |
 | Collection and teardown, with margin (step 7) | keep 1 h |
 
 That leaves about 5.5 h, or 9 to 10 trials with no re-runs. The default, three rounds of `harper fpr`, is 6 trials and about 3 h, which leaves room for re-runs. The A/B fits as two rounds of `harper fpr harper-unbatched` (6 trials); three rounds of it (9 trials, about 4.5 h) fit only if nothing is re-run. Either way, set `SESSION_MINUTES` so the session stops starting trials while there is still time to collect:
@@ -101,6 +103,10 @@ SESSION_MINUTES=$(( 480 - $(awk '{print int($1 / 60)}' /proc/uptime) - 60 ))   #
 
 Watch it with short ssh calls (`tail results/raw/trials.log`); every trial line names its verdict.
 
+Before the session, a short shakedown trial per target found two bugs on 2026-10-15 that would each have cost a trial: run each target once with a small warm-up and two steps (`RATES=25,50 BENCH_ARGS="--warmup-requests 3000 --warmup-rate 100" SAMPLE_SH=... CONDITIONS_SH=... scripts/run.sh bench <target>`). Verification fails it on the warm-up and on `DATA-004` by design; check the rest: the cycle join, the per-cgroup memory lines, the reference's memory-sizing record, the coherence audit. Move its files out of `results/raw` before the session.
+
+Keep a session on one commit of this repository: `run.sh` runs afresh for every trial, so a checkout changed mid-session gives later trials another commit.
+
 ## 6. Report
 
 ```bash
@@ -110,6 +116,8 @@ node scripts/report.mjs results/raw/session-<stamp>.log > results/session-<stamp
 Per target and step: median and range across accepted trials of throughput, latency, CPU per request, memory, disk reads; for `fpr`, entity, aggregate and Redis keyspace hit rates, evictions, Postgres buffer hit rate and blocks read; on tier 2, gigacycles, effective GHz, IPC and ops per gigacycle, with any step whose clock left the session median by more than 2% marked (set `DRIFT` to the probe's threshold if it is larger).
 
 ## 7. Collect and tear down
+
+Optional diagnostics first, on the same host, not measurements: `scripts/run.sh timing <target>` (each target's own `Server-Timing` phases, one request at a time) and `scripts/promotion-probe.sh` (the quote's promotion lookup on both targets).
 
 Copy `results/raw/` (every run record, summary, conditions, verification, console, sample directory, host conditions and the session log) and `results/session-<stamp>.*` into `$S`, then follow `environments/gcp/README.md` step 6. Snapshots are not kept: every session re-seeds.
 
@@ -131,16 +139,10 @@ Each `fpr` container has its own memory limit, and every process is sized from t
 
 On `bench`, `verify-run-record.mjs` judges DATA-004's memory evidence per cgroup: each container against its own limit, and the summed peaks against the 2 GiB budget. One of them must be pressed (`memory.peak` at 90% of its limit or more) and still reading (at least 1 MiB of disk reads or a refault in every measured step). Each trial's verdict line in `results/raw/trials.log` carries the `DATA-004 memory basis:` that met it; for this stack it should be Postgres against its 1,280 MiB.
 
-## Not yet tested
+## Tested, and not yet tested
 
-Tested locally on `dev` with tier-1 placement: the whole trial and session path, three targets alternating, the unbatched build, `/__stats` polling, the report, the loader's `--verify-only` and `--encode-only` against `bench` (no `bench` data was loaded locally), and ecommerce-store's cycle join against synthetic `sample.sh` output.
+The first sessions, 2026-10-15 and 16, ran every step above on the Linux host with both targets and the unbatched build: `compose.tier2.yaml` under Docker's Compose (5.6.0) with `!reset` and `cgroup_parent` for a three-container target; Docker scope discovery from the host and the generator, and the wrapper's tier-2 accounting; `sample.sh` and `conditions.sh` per trial under `sudo systemd-run`; the cycle join against real `perf stat --for-each-cgroup -x,` output, run in the generator container over a root-owned sample directory; loading `bench` into Postgres and restoring its uncompressed snapshot; and `DATA-004`'s per-cgroup memory evidence, met by every trial of both targets.
 
-Untested until the first session:
+What they changed: the coherence audit is bounded by the run's write stream (it would have run for hours on `bench`) and a failing audit sets the trial aside instead of aborting `run.sh`; the unbatched build passes Buildx Bake's entitlement check; the reference's resolved heap and block-cache sizes are recorded after every trial. See [findings-tier2.md](findings-tier2.md#traps-hit-and-what-changed).
 
-- `compose.tier2.yaml` under Docker with the systemd cgroup driver, and `cgroup_parent: bench-target.slice` for a three-container target.
-- Discovering Docker container scopes (`docker-<id>.scope`) from the host and from the generator, and the wrapper's tier-2 accounting (target-slice intruders, generator-slice neighbours, containers misplaced in `system.slice`).
-- `sudo systemd-run` of `sample.sh` per trial, and `conditions.sh` per trial.
-- The cycle join against real `perf stat --for-each-cgroup -x,` output: the qualification recorded per-CPU CSV and a human-readable cgroup-mode summary, not cgroup-mode CSV, so that layout is inferred from perf's documentation.
-- Running the join in the generator container against a per-trial sample directory owned by root.
-- Loading `bench` into Postgres, its time and disk, and the uncompressed snapshot's restore time.
-- DATA-004's memory evidence for either target on `bench`.
+Still untested: a live migration or maintenance event during a trial (none occurred), the Cloud NAT path, and a trial set aside and re-run by `session.sh` on tier 2.
