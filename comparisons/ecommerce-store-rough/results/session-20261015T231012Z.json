@@ -1,0 +1,2164 @@
+{
+  "session": "session-20261015T231012Z.log",
+  "setAside": {},
+  "sessionEffectiveGHz": 3.8816404064802064,
+  "trialsWithContendedSteps": [],
+  "configs": {
+    "harper reference": {
+      "trials": [
+        {
+          "file": "summary-harper-2026-10-15T23-10-56-379Z.json",
+          "stamp": "20261015T231013Z",
+          "coldStartFirst200Ms": 3938,
+          "memoryBasis": "per cgroup: harper against its own 2048 MiB limit",
+          "harperMemory": {
+            "inputs": {
+              "constrainedMemoryBytes": 2147483648,
+              "totalmemBytes": 63202598912,
+              "cgroupMemoryMax": "2147483648",
+              "threads": 2
+            },
+            "configured": {
+              "threads.maxHeapMemory": null,
+              "storage.rocks.blockCacheSize": null,
+              "storage.rocks.writeBufferManagerSize": null
+            },
+            "resolved": {
+              "workerMaxOldGenerationMiB": 512,
+              "workerMaxYoungGenerationMiB": 16,
+              "rocksBlockCacheBytes": 536870912,
+              "rocksWriteBufferManagerBytes": 178956970
+            }
+          },
+          "host": null,
+          "contention": null,
+          "steps": [
+            {
+              "contended": false,
+              "offered": 25,
+              "achieved": 25,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 20.64,
+              "p90": 47.51,
+              "p99": 90.06,
+              "quoteP99": 104.21,
+              "productP99": 29.08,
+              "dispatchLagP99": 2.09,
+              "productCacheHitRate": 0.0416,
+              "invalidations": 12156,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.011,
+              "generatorSaturated": false,
+              "targetCpuLoad": 0.495,
+              "targetCpuMsPerOk": 19.794,
+              "targetMemoryBytes": 2052640768,
+              "targetPageCacheBytes": 956805120,
+              "targetDiskReadBytes": 6340608,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 0.494
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.014,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.027,
+              "machineBusyCores": 0.53,
+              "unchargedVmCores": -0.005,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 114.29731891454426,
+                "cpuSeconds": 29.498909544537927,
+                "effectiveGHz": 3.8746286109992076,
+                "ipc": 2.0415449848297524,
+                "opsPerGigacycle": 13.123667416219034,
+                "cpuAgreement": 0.9935139511199311
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 50,
+              "achieved": 49.8,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 19.62,
+              "p90": 60.19,
+              "p99": 136.59,
+              "quoteP99": 150.76,
+              "productP99": 29.72,
+              "dispatchLagP99": 2.15,
+              "productCacheHitRate": 0.027,
+              "invalidations": 11808,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.017,
+              "generatorSaturated": false,
+              "targetCpuLoad": 0.791,
+              "targetCpuMsPerOk": 15.903,
+              "targetMemoryBytes": 2060980224,
+              "targetPageCacheBytes": 964272128,
+              "targetDiskReadBytes": 11304960,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 0.79
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.02,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.026,
+              "machineBusyCores": 0.826,
+              "unchargedVmCores": -0.01,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 184.56306079683844,
+                "cpuSeconds": 47.5849025617456,
+                "effectiveGHz": 3.8786054160214287,
+                "ipc": 2.123362216957518,
+                "opsPerGigacycle": 16.25460689180004,
+                "cpuAgreement": 0.997371585902576
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 100,
+              "achieved": 100,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 22.96,
+              "p90": 138.67,
+              "p99": 270.25,
+              "quoteP99": 298.4,
+              "productP99": 44.57,
+              "dispatchLagP99": 2.25,
+              "productCacheHitRate": 0.0538,
+              "invalidations": 12156,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.017,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.372,
+              "targetCpuMsPerOk": 13.715,
+              "targetMemoryBytes": 2074591232,
+              "targetPageCacheBytes": 972398592,
+              "targetDiskReadBytes": 20201472,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 1.371
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.021,
+              "otherContainerCores": -0.001,
+              "vmServicesCores": 0.026,
+              "machineBusyCores": 1.398,
+              "unchargedVmCores": -0.019,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 319.0349965791297,
+                "cpuSeconds": 82.1642872795,
+                "effectiveGHz": 3.882891304026792,
+                "ipc": 2.226203947270257,
+                "opsPerGigacycle": 18.806714198552918,
+                "cpuAgreement": 0.9984524585347598
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 200,
+              "achieved": 135.9,
+              "saturated": true,
+              "shed": 3126,
+              "errors": 3126,
+              "p50": 5335.33,
+              "p90": 5838.79,
+              "p99": 6111.88,
+              "quoteP99": 6158.27,
+              "productP99": 5619.85,
+              "dispatchLagP99": 2.31,
+              "productCacheHitRate": 0.0801,
+              "invalidations": 12120,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.034,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.938,
+              "targetCpuMsPerOk": 14.244,
+              "targetMemoryBytes": 2121478144,
+              "targetPageCacheBytes": 989790208,
+              "targetDiskReadBytes": 27664384,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 1.937
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.039,
+              "otherContainerCores": -0.001,
+              "vmServicesCores": 0.027,
+              "machineBusyCores": 1.98,
+              "unchargedVmCores": -0.022,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 490.80666812554347,
+                "cpuSeconds": 126.27157068181924,
+                "effectiveGHz": 3.8869134633819082,
+                "ipc": 2.1595580530332827,
+                "opsPerGigacycle": 18.080438951432743,
+                "cpuAgreement": 0.9989967251544606
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 400,
+              "achieved": 135.1,
+              "saturated": true,
+              "shed": 15145,
+              "errors": 15145,
+              "p50": 5465.81,
+              "p90": 5963.36,
+              "p99": 6268.73,
+              "quoteP99": 6343.74,
+              "productP99": 5795.38,
+              "dispatchLagP99": 2.47,
+              "productCacheHitRate": 0.0796,
+              "invalidations": 11844,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.022,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.943,
+              "targetCpuMsPerOk": 14.392,
+              "targetMemoryBytes": 2139729920,
+              "targetPageCacheBytes": 1006604288,
+              "targetDiskReadBytes": 26607616,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 1.942
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.027,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.027,
+              "machineBusyCores": 1.98,
+              "unchargedVmCores": -0.016,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 494.9436265281396,
+                "cpuSeconds": 127.34112354168839,
+                "effectiveGHz": 3.8867540411335155,
+                "ipc": 2.148034425244412,
+                "opsPerGigacycle": 17.89092641138709,
+                "cpuAgreement": 0.9991939708292734
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 800,
+              "achieved": 139.4,
+              "saturated": true,
+              "shed": 38916,
+              "errors": 38916,
+              "p50": 5355.57,
+              "p90": 5796.62,
+              "p99": 6166.55,
+              "quoteP99": 6211.79,
+              "productP99": 5670.76,
+              "dispatchLagP99": 2.59,
+              "productCacheHitRate": 0.0818,
+              "invalidations": 11832,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.022,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.942,
+              "targetCpuMsPerOk": 13.999,
+              "targetMemoryBytes": 2147368960,
+              "targetPageCacheBytes": 1011793920,
+              "targetDiskReadBytes": 25264128,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 1.94
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.028,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.031,
+              "machineBusyCores": 1.984,
+              "unchargedVmCores": -0.015,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 493.61569963310734,
+                "cpuSeconds": 126.98444487577234,
+                "effectiveGHz": 3.887213903372235,
+                "ipc": 2.1619290421706485,
+                "opsPerGigacycle": 18.402980307862816,
+                "cpuAgreement": 0.9985445089627347
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 1600,
+              "achieved": 139.1,
+              "saturated": true,
+              "shed": 86830,
+              "errors": 86830,
+              "p50": 5350.88,
+              "p90": 5867.05,
+              "p99": 6098.97,
+              "quoteP99": 6132.37,
+              "productP99": 5620.2,
+              "dispatchLagP99": 2.7,
+              "productCacheHitRate": 0.0835,
+              "invalidations": 12240,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.031,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.941,
+              "targetCpuMsPerOk": 13.958,
+              "targetMemoryBytes": 2146938880,
+              "targetPageCacheBytes": 1001988096,
+              "targetDiskReadBytes": 23396352,
+              "targetPageCacheRefaults": 5,
+              "cores": {
+                "harper": 1.939
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.036,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.027,
+              "machineBusyCores": 1.979,
+              "unchargedVmCores": -0.023,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 497.1897559027486,
+                "cpuSeconds": 127.91302459746178,
+                "effectiveGHz": 3.886936122942827,
+                "ipc": 2.1648923687055888,
+                "opsPerGigacycle": 18.44366238670789,
+                "cpuAgreement": 0.9993379306228355
+              },
+              "clockDrift": false
+            }
+          ]
+        },
+        {
+          "file": "summary-harper-2026-10-16T00-36-19-331Z.json",
+          "stamp": "20261016T003534Z",
+          "coldStartFirst200Ms": 4157,
+          "memoryBasis": "per cgroup: harper against its own 2048 MiB limit",
+          "harperMemory": {
+            "inputs": {
+              "constrainedMemoryBytes": 2147483648,
+              "totalmemBytes": 63202598912,
+              "cgroupMemoryMax": "2147483648",
+              "threads": 2
+            },
+            "configured": {
+              "threads.maxHeapMemory": null,
+              "storage.rocks.blockCacheSize": null,
+              "storage.rocks.writeBufferManagerSize": null
+            },
+            "resolved": {
+              "workerMaxOldGenerationMiB": 512,
+              "workerMaxYoungGenerationMiB": 16,
+              "rocksBlockCacheBytes": 536870912,
+              "rocksWriteBufferManagerBytes": 178956970
+            }
+          },
+          "host": null,
+          "contention": null,
+          "steps": [
+            {
+              "contended": false,
+              "offered": 25,
+              "achieved": 25,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 21.1,
+              "p90": 43.05,
+              "p99": 85.68,
+              "quoteP99": 89.75,
+              "productP99": 26.15,
+              "dispatchLagP99": 2.06,
+              "productCacheHitRate": 0.0416,
+              "invalidations": 12156,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.012,
+              "generatorSaturated": false,
+              "targetCpuLoad": 0.492,
+              "targetCpuMsPerOk": 19.668,
+              "targetMemoryBytes": 2055438336,
+              "targetPageCacheBytes": 956723200,
+              "targetDiskReadBytes": 6340608,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 0.491
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.015,
+              "otherContainerCores": 0.001,
+              "vmServicesCores": 0.027,
+              "machineBusyCores": 0.528,
+              "unchargedVmCores": -0.006,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 113.87330834938724,
+                "cpuSeconds": 29.438847902331883,
+                "effectiveGHz": 3.8681305982890457,
+                "ipc": 1.9613499109815793,
+                "opsPerGigacycle": 13.172533772336575,
+                "cpuAgreement": 0.9978354496248916
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 50,
+              "achieved": 49.8,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 20.36,
+              "p90": 61.94,
+              "p99": 149.35,
+              "quoteP99": 166.48,
+              "productP99": 34.98,
+              "dispatchLagP99": 2.11,
+              "productCacheHitRate": 0.027,
+              "invalidations": 11808,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.018,
+              "generatorSaturated": false,
+              "targetCpuLoad": 0.79,
+              "targetCpuMsPerOk": 15.869,
+              "targetMemoryBytes": 2064412672,
+              "targetPageCacheBytes": 964190208,
+              "targetDiskReadBytes": 11304960,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 0.789
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.022,
+              "otherContainerCores": -0.001,
+              "vmServicesCores": 0.027,
+              "machineBusyCores": 0.824,
+              "unchargedVmCores": -0.013,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 183.92704658551085,
+                "cpuSeconds": 47.50779135797404,
+                "effectiveGHz": 3.8715133103033477,
+                "ipc": 2.0360838019283785,
+                "opsPerGigacycle": 16.31081483497452,
+                "cpuAgreement": 0.9979326092564148
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 100,
+              "achieved": 100,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 22.45,
+              "p90": 157.8,
+              "p99": 348.35,
+              "quoteP99": 428.91,
+              "productP99": 52.31,
+              "dispatchLagP99": 2.26,
+              "productCacheHitRate": 0.0538,
+              "invalidations": 12156,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.019,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.346,
+              "targetCpuMsPerOk": 13.463,
+              "targetMemoryBytes": 2075279360,
+              "targetPageCacheBytes": 972300288,
+              "targetDiskReadBytes": 20201472,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 1.345
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.023,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.026,
+              "machineBusyCores": 1.377,
+              "unchargedVmCores": -0.017,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 312.8459645271568,
+                "cpuSeconds": 80.67806668989594,
+                "effectiveGHz": 3.8777077508519096,
+                "ipc": 2.17279351767902,
+                "opsPerGigacycle": 19.178767445725406,
+                "cpuAgreement": 0.9987770220800989
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 200,
+              "achieved": 134.4,
+              "saturated": true,
+              "shed": 3223,
+              "errors": 3223,
+              "p50": 5417.72,
+              "p90": 5977.32,
+              "p99": 6205.56,
+              "quoteP99": 6302.5,
+              "productP99": 5678.97,
+              "dispatchLagP99": 2.28,
+              "productCacheHitRate": 0.0747,
+              "invalidations": 12120,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.036,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.942,
+              "targetCpuMsPerOk": 14.455,
+              "targetMemoryBytes": 2109526016,
+              "targetPageCacheBytes": 989798400,
+              "targetDiskReadBytes": 27877376,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 1.94
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.041,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.028,
+              "machineBusyCores": 1.989,
+              "unchargedVmCores": -0.02,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 491.4500134134339,
+                "cpuSeconds": 126.75070578038638,
+                "effectiveGHz": 3.8772960701689576,
+                "ipc": 2.012467010644697,
+                "opsPerGigacycle": 17.859395178439684,
+                "cpuAgreement": 0.999036727297071
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 400,
+              "achieved": 151.6,
+              "saturated": true,
+              "shed": 14160,
+              "errors": 14160,
+              "p50": 4847.78,
+              "p90": 5399.9,
+              "p99": 5733.59,
+              "quoteP99": 5756.52,
+              "productP99": 5315.54,
+              "dispatchLagP99": 2.48,
+              "productCacheHitRate": 0.0891,
+              "invalidations": 11844,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.022,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.954,
+              "targetCpuMsPerOk": 12.97,
+              "targetMemoryBytes": 2133618688,
+              "targetPageCacheBytes": 1008099328,
+              "targetDiskReadBytes": 28983296,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 1.953
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.028,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.027,
+              "machineBusyCores": 1.989,
+              "unchargedVmCores": -0.019,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 495.0020359108367,
+                "cpuSeconds": 127.36482924375657,
+                "effectiveGHz": 3.8864892203755828,
+                "ipc": 2.1924151244889796,
+                "opsPerGigacycle": 19.878706118639986,
+                "cpuAgreement": 0.9979655801570889
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 800,
+              "achieved": 149.2,
+              "saturated": true,
+              "shed": 38320,
+              "errors": 38320,
+              "p50": 4959.92,
+              "p90": 5423.66,
+              "p99": 5720.57,
+              "quoteP99": 5783.53,
+              "productP99": 5297.97,
+              "dispatchLagP99": 2.58,
+              "productCacheHitRate": 0.0854,
+              "invalidations": 11832,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.036,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.953,
+              "targetCpuMsPerOk": 13.06,
+              "targetMemoryBytes": 2146865152,
+              "targetPageCacheBytes": 1020452864,
+              "targetDiskReadBytes": 26394624,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 1.95
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.044,
+              "otherContainerCores": 0.001,
+              "vmServicesCores": 0.027,
+              "machineBusyCores": 2,
+              "unchargedVmCores": -0.022,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 490.76580050739443,
+                "cpuSeconds": 126.26630037802278,
+                "effectiveGHz": 3.8867520394445205,
+                "ipc": 2.1863101565462815,
+                "opsPerGigacycle": 19.72427579507784,
+                "cpuAgreement": 0.9987617062642116
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 1600,
+              "achieved": 150,
+              "saturated": true,
+              "shed": 86170,
+              "errors": 86170,
+              "p50": 4976.09,
+              "p90": 5491.65,
+              "p99": 5776.83,
+              "quoteP99": 5817.06,
+              "productP99": 5314.21,
+              "dispatchLagP99": 2.68,
+              "productCacheHitRate": 0.0873,
+              "invalidations": 12240,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.024,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.954,
+              "targetCpuMsPerOk": 13.062,
+              "targetMemoryBytes": 2146623488,
+              "targetPageCacheBytes": 1005654016,
+              "targetDiskReadBytes": 24961024,
+              "targetPageCacheRefaults": 2,
+              "cores": {
+                "harper": 1.953
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.029,
+              "otherContainerCores": 0.001,
+              "vmServicesCores": 0.027,
+              "machineBusyCores": 1.991,
+              "unchargedVmCores": -0.019,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 498.23437519875563,
+                "cpuSeconds": 128.1910419866534,
+                "effectiveGHz": 3.8866551630856487,
+                "ipc": 2.1841521611848274,
+                "opsPerGigacycle": 19.72967039072448,
+                "cpuAgreement": 0.9983627496966475
+              },
+              "clockDrift": false
+            }
+          ]
+        },
+        {
+          "file": "summary-harper-2026-10-16T01-04-46-321Z.json",
+          "stamp": "20261016T010401Z",
+          "coldStartFirst200Ms": 4136,
+          "memoryBasis": "per cgroup: harper against its own 2048 MiB limit",
+          "harperMemory": {
+            "inputs": {
+              "constrainedMemoryBytes": 2147483648,
+              "totalmemBytes": 63202598912,
+              "cgroupMemoryMax": "2147483648",
+              "threads": 2
+            },
+            "configured": {
+              "threads.maxHeapMemory": null,
+              "storage.rocks.blockCacheSize": null,
+              "storage.rocks.writeBufferManagerSize": null
+            },
+            "resolved": {
+              "workerMaxOldGenerationMiB": 512,
+              "workerMaxYoungGenerationMiB": 16,
+              "rocksBlockCacheBytes": 536870912,
+              "rocksWriteBufferManagerBytes": 178956970
+            }
+          },
+          "host": null,
+          "contention": null,
+          "steps": [
+            {
+              "contended": false,
+              "offered": 25,
+              "achieved": 25,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 20.26,
+              "p90": 42.76,
+              "p99": 81.41,
+              "quoteP99": 92.9,
+              "productP99": 19.25,
+              "dispatchLagP99": 2.07,
+              "productCacheHitRate": 0.0416,
+              "invalidations": 12156,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.011,
+              "generatorSaturated": false,
+              "targetCpuLoad": 0.478,
+              "targetCpuMsPerOk": 19.12,
+              "targetMemoryBytes": 2057224192,
+              "targetPageCacheBytes": 956624896,
+              "targetDiskReadBytes": 6340608,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 0.477
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.014,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.026,
+              "machineBusyCores": 0.512,
+              "unchargedVmCores": -0.005,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 110.72448763084999,
+                "cpuSeconds": 28.57497581559318,
+                "effectiveGHz": 3.8748759874865177,
+                "ipc": 2.0608624480729008,
+                "opsPerGigacycle": 13.547138777475551,
+                "cpuAgreement": 0.996335880280081
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 50,
+              "achieved": 49.8,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 19.76,
+              "p90": 59.51,
+              "p99": 136.9,
+              "quoteP99": 158.3,
+              "productP99": 29.58,
+              "dispatchLagP99": 2.08,
+              "productCacheHitRate": 0.027,
+              "invalidations": 11808,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.016,
+              "generatorSaturated": false,
+              "targetCpuLoad": 0.759,
+              "targetCpuMsPerOk": 15.26,
+              "targetMemoryBytes": 2067148800,
+              "targetPageCacheBytes": 964091904,
+              "targetDiskReadBytes": 11304960,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 0.758
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.019,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.026,
+              "machineBusyCores": 0.793,
+              "unchargedVmCores": -0.01,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 176.8619710257289,
+                "cpuSeconds": 45.6102370767411,
+                "effectiveGHz": 3.877681467170438,
+                "ipc": 2.142497936536314,
+                "opsPerGigacycle": 16.96238022567088,
+                "cpuAgreement": 0.9962849767546603
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 100,
+              "achieved": 100,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 21.33,
+              "p90": 119.68,
+              "p99": 244.53,
+              "quoteP99": 264.8,
+              "productP99": 41.13,
+              "dispatchLagP99": 2.26,
+              "productCacheHitRate": 0.0538,
+              "invalidations": 12156,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.017,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.294,
+              "targetCpuMsPerOk": 12.945,
+              "targetMemoryBytes": 2085826560,
+              "targetPageCacheBytes": 972218368,
+              "targetDiskReadBytes": 20201472,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 1.293
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.02,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.026,
+              "machineBusyCores": 1.319,
+              "unchargedVmCores": -0.02,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 300.79668632227316,
+                "cpuSeconds": 77.47781786232113,
+                "effectiveGHz": 3.8823587785705573,
+                "ipc": 2.2623857356041186,
+                "opsPerGigacycle": 19.947028251407026,
+                "cpuAgreement": 0.9975138553764393
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 200,
+              "achieved": 145,
+              "saturated": true,
+              "shed": 2588,
+              "errors": 2588,
+              "p50": 4972.87,
+              "p90": 5506.56,
+              "p99": 5848.66,
+              "quoteP99": 5959.52,
+              "productP99": 5374.24,
+              "dispatchLagP99": 2.36,
+              "productCacheHitRate": 0.0784,
+              "invalidations": 12120,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.035,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.948,
+              "targetCpuMsPerOk": 13.467,
+              "targetMemoryBytes": 2110431232,
+              "targetPageCacheBytes": 990457856,
+              "targetDiskReadBytes": 29007872,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 1.947
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.041,
+              "otherContainerCores": -0.001,
+              "vmServicesCores": 0.027,
+              "machineBusyCores": 2,
+              "unchargedVmCores": -0.014,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 492.6013029298683,
+                "cpuSeconds": 126.72372495921321,
+                "effectiveGHz": 3.8872066228199573,
+                "ipc": 2.148591782149036,
+                "opsPerGigacycle": 19.106729811756075,
+                "cpuAgreement": 0.9998019544529055
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 400,
+              "achieved": 152,
+              "saturated": true,
+              "shed": 14135,
+              "errors": 14135,
+              "p50": 4835.7,
+              "p90": 5311.08,
+              "p99": 5651.92,
+              "quoteP99": 5721.58,
+              "productP99": 5137.48,
+              "dispatchLagP99": 2.43,
+              "productCacheHitRate": 0.0837,
+              "invalidations": 11844,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.023,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.951,
+              "targetCpuMsPerOk": 12.877,
+              "targetMemoryBytes": 2146582528,
+              "targetPageCacheBytes": 996745216,
+              "targetDiskReadBytes": 28696576,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 1.95
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.029,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.027,
+              "machineBusyCores": 1.992,
+              "unchargedVmCores": -0.014,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 493.6575928999895,
+                "cpuSeconds": 126.99244212496464,
+                "effectiveGHz": 3.8872989970081413,
+                "ipc": 2.1972372516660093,
+                "opsPerGigacycle": 19.983486817346613,
+                "cpuAgreement": 0.9997086748362156
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 800,
+              "achieved": 151.4,
+              "saturated": true,
+              "shed": 38203,
+              "errors": 38203,
+              "p50": 4925.74,
+              "p90": 5438.67,
+              "p99": 5684.81,
+              "quoteP99": 5715.56,
+              "productP99": 5140.55,
+              "dispatchLagP99": 2.61,
+              "productCacheHitRate": 0.088,
+              "invalidations": 11832,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.024,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.949,
+              "targetCpuMsPerOk": 12.944,
+              "targetMemoryBytes": 2147049472,
+              "targetPageCacheBytes": 995942400,
+              "targetDiskReadBytes": 26836992,
+              "targetPageCacheRefaults": 3,
+              "cores": {
+                "harper": 1.948
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.029,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.027,
+              "machineBusyCores": 1.983,
+              "unchargedVmCores": -0.021,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 492.7284346383047,
+                "cpuSeconds": 126.76128639131328,
+                "effectiveGHz": 3.8870577024380095,
+                "ipc": 2.174924764371856,
+                "opsPerGigacycle": 19.88316344517776,
+                "cpuAgreement": 0.9996123930405546
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 1600,
+              "achieved": 143.5,
+              "saturated": true,
+              "shed": 86563,
+              "errors": 86563,
+              "p50": 5163.64,
+              "p90": 5630.8,
+              "p99": 5858.56,
+              "quoteP99": 5883.37,
+              "productP99": 5327.18,
+              "dispatchLagP99": 2.68,
+              "productCacheHitRate": 0.0857,
+              "invalidations": 12240,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.031,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.951,
+              "targetCpuMsPerOk": 13.582,
+              "targetMemoryBytes": 2141528064,
+              "targetPageCacheBytes": 989646848,
+              "targetDiskReadBytes": 24657920,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 1.95
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.036,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.027,
+              "machineBusyCores": 1.994,
+              "unchargedVmCores": -0.019,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 497.88948823163025,
+                "cpuSeconds": 128.0805908889705,
+                "effectiveGHz": 3.8873141104044153,
+                "ipc": 2.1738110179423122,
+                "opsPerGigacycle": 18.954005302497325,
+                "cpuAgreement": 0.9992651353912232
+              },
+              "clockDrift": false
+            }
+          ]
+        }
+      ],
+      "budget": {
+        "mode": "single container",
+        "cgroup": "/bench.slice/bench-target.slice",
+        "targetCpus": 2,
+        "targetMemoryMiB": 2048,
+        "harperThreads": 2
+      },
+      "build": {
+        "commit": "f47978bfc956f859aa2a0bc417a77ea50e12b25e",
+        "imageTag": "checkout",
+        "source": "checkout"
+      },
+      "images": [
+        "aab-harper-reference:checkout@sha256:b1776acab69ddde79aac856eecba3f9b854873c447d53ca8f98d209259453a7b"
+      ],
+      "limits": {
+        "harper": {
+          "cpuMax": "max 100000",
+          "memoryMax": "2147483648"
+        }
+      }
+    },
+    "harper reference, unbatched build (e6d8c19)": {
+      "trials": [
+        {
+          "file": "summary-harper-unbatched-2026-10-15T23-39-20-442Z.json",
+          "stamp": "20261015T233839Z",
+          "coldStartFirst200Ms": 4060,
+          "memoryBasis": "per cgroup: harper against its own 2048 MiB limit",
+          "harperMemory": {
+            "inputs": {
+              "constrainedMemoryBytes": 2147483648,
+              "totalmemBytes": 63202598912,
+              "cgroupMemoryMax": "2147483648",
+              "threads": 2
+            },
+            "configured": {
+              "threads.maxHeapMemory": null,
+              "storage.rocks.blockCacheSize": null,
+              "storage.rocks.writeBufferManagerSize": null
+            },
+            "resolved": {
+              "workerMaxOldGenerationMiB": 512,
+              "workerMaxYoungGenerationMiB": 16,
+              "rocksBlockCacheBytes": 536870912,
+              "rocksWriteBufferManagerBytes": 178956970
+            }
+          },
+          "host": null,
+          "contention": null,
+          "steps": [
+            {
+              "contended": false,
+              "offered": 25,
+              "achieved": 25,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 21.79,
+              "p90": 48.15,
+              "p99": 89.39,
+              "quoteP99": 99.05,
+              "productP99": 26.75,
+              "dispatchLagP99": 2.07,
+              "productCacheHitRate": 0.0416,
+              "invalidations": 12156,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.011,
+              "generatorSaturated": false,
+              "targetCpuLoad": 0.524,
+              "targetCpuMsPerOk": 20.97,
+              "targetMemoryBytes": 2043912192,
+              "targetPageCacheBytes": 956731392,
+              "targetDiskReadBytes": 6340608,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 0.523
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.015,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.028,
+              "machineBusyCores": 0.557,
+              "unchargedVmCores": -0.009,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 121.41413260383015,
+                "cpuSeconds": 31.375845412492215,
+                "effectiveGHz": 3.8696688808738657,
+                "ipc": 1.926831200318266,
+                "opsPerGigacycle": 12.354410214290661,
+                "cpuAgreement": 0.9974984656420622
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 50,
+              "achieved": 49.8,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 20.64,
+              "p90": 63.05,
+              "p99": 120.77,
+              "quoteP99": 133.74,
+              "productP99": 28.79,
+              "dispatchLagP99": 2.12,
+              "productCacheHitRate": 0.027,
+              "invalidations": 11808,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.017,
+              "generatorSaturated": false,
+              "targetCpuLoad": 0.83,
+              "targetCpuMsPerOk": 16.683,
+              "targetMemoryBytes": 2058928128,
+              "targetPageCacheBytes": 964198400,
+              "targetDiskReadBytes": 11304960,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 0.828
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.021,
+              "otherContainerCores": 0.001,
+              "vmServicesCores": 0.027,
+              "machineBusyCores": 0.868,
+              "unchargedVmCores": -0.009,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 192.96756715262504,
+                "cpuSeconds": 49.814790030278644,
+                "effectiveGHz": 3.873700301363002,
+                "ipc": 2.0158785354309443,
+                "opsPerGigacycle": 15.546654001328582,
+                "cpuAgreement": 0.9953035228054767
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 100,
+              "achieved": 100,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 32.17,
+              "p90": 281.9,
+              "p99": 507.24,
+              "quoteP99": 544.77,
+              "productP99": 69.24,
+              "dispatchLagP99": 2.24,
+              "productCacheHitRate": 0.0538,
+              "invalidations": 12156,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.02,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.599,
+              "targetCpuMsPerOk": 15.99,
+              "targetMemoryBytes": 2073153536,
+              "targetPageCacheBytes": 972308480,
+              "targetDiskReadBytes": 20201472,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 1.598
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.025,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.028,
+              "machineBusyCores": 1.628,
+              "unchargedVmCores": -0.023,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 370.9276424364279,
+                "cpuSeconds": 95.88144794689502,
+                "effectiveGHz": 3.868607018136295,
+                "ipc": 1.897581951113022,
+                "opsPerGigacycle": 16.175661540318664,
+                "cpuAgreement": 0.9993792742155674
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 200,
+              "achieved": 125.7,
+              "saturated": true,
+              "shed": 3712,
+              "errors": 3712,
+              "p50": 5694.36,
+              "p90": 6309.77,
+              "p99": 6878.98,
+              "quoteP99": 6932.5,
+              "productP99": 6381.09,
+              "dispatchLagP99": 2.33,
+              "productCacheHitRate": 0.0767,
+              "invalidations": 12120,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.035,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.93,
+              "targetCpuMsPerOk": 15.316,
+              "targetMemoryBytes": 2112864256,
+              "targetPageCacheBytes": 988618752,
+              "targetDiskReadBytes": 25796608,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 1.93
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.04,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.028,
+              "machineBusyCores": 1.976,
+              "unchargedVmCores": -0.022,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 491.87156840871285,
+                "cpuSeconds": 126.79458814618532,
+                "effectiveGHz": 3.879278884061039,
+                "ipc": 1.979516312257423,
+                "opsPerGigacycle": 16.849926957179232,
+                "cpuAgreement": 0.9988800103429878
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 400,
+              "achieved": 131.2,
+              "saturated": true,
+              "shed": 15379,
+              "errors": 15379,
+              "p50": 5645.3,
+              "p90": 6114.52,
+              "p99": 6295.08,
+              "quoteP99": 6321.72,
+              "productP99": 5827.61,
+              "dispatchLagP99": 2.44,
+              "productCacheHitRate": 0.0737,
+              "invalidations": 11844,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.022,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.937,
+              "targetCpuMsPerOk": 14.817,
+              "targetMemoryBytes": 2130853888,
+              "targetPageCacheBytes": 1005056000,
+              "targetDiskReadBytes": 25845760,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 1.935
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.028,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.027,
+              "machineBusyCores": 1.963,
+              "unchargedVmCores": -0.027,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 495.74580644260675,
+                "cpuSeconds": 127.71194113943545,
+                "effectiveGHz": 3.881749834977085,
+                "ipc": 2.0301365236427014,
+                "opsPerGigacycle": 17.389960515980817,
+                "cpuAgreement": 0.9997740278831607
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 800,
+              "achieved": 131.5,
+              "saturated": true,
+              "shed": 39365,
+              "errors": 39365,
+              "p50": 5656.27,
+              "p90": 6192.8,
+              "p99": 6458.73,
+              "quoteP99": 6544.05,
+              "productP99": 6065.72,
+              "dispatchLagP99": 2.59,
+              "productCacheHitRate": 0.0834,
+              "invalidations": 11832,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.03,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.935,
+              "targetCpuMsPerOk": 14.699,
+              "targetMemoryBytes": 2144731136,
+              "targetPageCacheBytes": 1010876416,
+              "targetDiskReadBytes": 24174592,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 1.933
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.034,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.028,
+              "machineBusyCores": 1.972,
+              "unchargedVmCores": -0.023,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 491.2360648072314,
+                "cpuSeconds": 126.61856316398479,
+                "effectiveGHz": 3.879652813395358,
+                "ipc": 2.000791385875726,
+                "opsPerGigacycle": 17.578106777214142,
+                "cpuAgreement": 0.9975715936034466
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 1600,
+              "achieved": 127.6,
+              "saturated": true,
+              "shed": 87526,
+              "errors": 87526,
+              "p50": 5821.37,
+              "p90": 6288.66,
+              "p99": 6494.88,
+              "quoteP99": 6524.23,
+              "productP99": 6017.43,
+              "dispatchLagP99": 2.69,
+              "productCacheHitRate": 0.0762,
+              "invalidations": 12240,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.031,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.941,
+              "targetCpuMsPerOk": 15.178,
+              "targetMemoryBytes": 2144768000,
+              "targetPageCacheBytes": 1010106368,
+              "targetDiskReadBytes": 23109632,
+              "targetPageCacheRefaults": 2,
+              "cores": {
+                "harper": 1.938
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.036,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.028,
+              "machineBusyCores": 1.981,
+              "unchargedVmCores": -0.021,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 498.65867475705113,
+                "cpuSeconds": 128.46958521921476,
+                "effectiveGHz": 3.881530977983328,
+                "ipc": 2.029639262521781,
+                "opsPerGigacycle": 16.99358785672098,
+                "cpuAgreement": 0.9988303549094689
+              },
+              "clockDrift": false
+            }
+          ]
+        },
+        {
+          "file": "summary-harper-unbatched-2026-10-16T00-07-50-919Z.json",
+          "stamp": "20261016T000704Z",
+          "coldStartFirst200Ms": 4236,
+          "memoryBasis": "per cgroup: harper against its own 2048 MiB limit",
+          "harperMemory": {
+            "inputs": {
+              "constrainedMemoryBytes": 2147483648,
+              "totalmemBytes": 63202598912,
+              "cgroupMemoryMax": "2147483648",
+              "threads": 2
+            },
+            "configured": {
+              "threads.maxHeapMemory": null,
+              "storage.rocks.blockCacheSize": null,
+              "storage.rocks.writeBufferManagerSize": null
+            },
+            "resolved": {
+              "workerMaxOldGenerationMiB": 512,
+              "workerMaxYoungGenerationMiB": 16,
+              "rocksBlockCacheBytes": 536870912,
+              "rocksWriteBufferManagerBytes": 178956970
+            }
+          },
+          "host": null,
+          "contention": null,
+          "steps": [
+            {
+              "contended": false,
+              "offered": 25,
+              "achieved": 25,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 21.38,
+              "p90": 46.37,
+              "p99": 100.1,
+              "quoteP99": 113.66,
+              "productP99": 26.92,
+              "dispatchLagP99": 2.07,
+              "productCacheHitRate": 0.0416,
+              "invalidations": 12156,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.012,
+              "generatorSaturated": false,
+              "targetCpuLoad": 0.517,
+              "targetCpuMsPerOk": 20.698,
+              "targetMemoryBytes": 2056425472,
+              "targetPageCacheBytes": 956682240,
+              "targetDiskReadBytes": 6340608,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 0.517
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.015,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.027,
+              "machineBusyCores": 0.553,
+              "unchargedVmCores": -0.006,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 119.91201291018568,
+                "cpuSeconds": 30.982691702553495,
+                "effectiveGHz": 3.870290356350895,
+                "ipc": 1.9414366731476935,
+                "opsPerGigacycle": 12.509172047036712,
+                "cpuAgreement": 0.9979209328955669
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 50,
+              "achieved": 49.8,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 20.44,
+              "p90": 64.71,
+              "p99": 137.96,
+              "quoteP99": 157.42,
+              "productP99": 36.46,
+              "dispatchLagP99": 2.1,
+              "productCacheHitRate": 0.027,
+              "invalidations": 11808,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.017,
+              "generatorSaturated": false,
+              "targetCpuLoad": 0.828,
+              "targetCpuMsPerOk": 16.633,
+              "targetMemoryBytes": 2063212544,
+              "targetPageCacheBytes": 964149248,
+              "targetDiskReadBytes": 11304960,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 0.827
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.02,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.027,
+              "machineBusyCores": 0.862,
+              "unchargedVmCores": -0.012,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 192.96803258225208,
+                "cpuSeconds": 49.782810293109335,
+                "effectiveGHz": 3.8761980580465876,
+                "ipc": 2.043626953415154,
+                "opsPerGigacycle": 15.54661650354578,
+                "cpuAgreement": 0.9976875575906947
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 100,
+              "achieved": 100,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 22.89,
+              "p90": 148.08,
+              "p99": 271.37,
+              "quoteP99": 309.44,
+              "productP99": 51.26,
+              "dispatchLagP99": 2.24,
+              "productCacheHitRate": 0.0538,
+              "invalidations": 12156,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.018,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.377,
+              "targetCpuMsPerOk": 13.767,
+              "targetMemoryBytes": 2067673088,
+              "targetPageCacheBytes": 972230656,
+              "targetDiskReadBytes": 20201472,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 1.375
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.021,
+              "otherContainerCores": 0.001,
+              "vmServicesCores": 0.026,
+              "machineBusyCores": 1.409,
+              "unchargedVmCores": -0.014,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 319.9920138534258,
+                "cpuSeconds": 82.42971754758781,
+                "effectiveGHz": 3.881998184316112,
+                "ipc": 2.186992760253272,
+                "opsPerGigacycle": 18.75046794995432,
+                "cpuAgreement": 0.9979339989347241
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 200,
+              "achieved": 136.6,
+              "saturated": true,
+              "shed": 3089,
+              "errors": 3089,
+              "p50": 5287.97,
+              "p90": 5781.47,
+              "p99": 6024.04,
+              "quoteP99": 6059.46,
+              "productP99": 5597.64,
+              "dispatchLagP99": 2.32,
+              "productCacheHitRate": 0.0782,
+              "invalidations": 12120,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.035,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.941,
+              "targetCpuMsPerOk": 14.199,
+              "targetMemoryBytes": 2101735424,
+              "targetPageCacheBytes": 989978624,
+              "targetDiskReadBytes": 28311552,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 1.94
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.039,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.028,
+              "machineBusyCores": 1.981,
+              "unchargedVmCores": -0.026,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 491.2019253441642,
+                "cpuSeconds": 126.51564494825809,
+                "effectiveGHz": 3.882538997805799,
+                "ipc": 2.111092768821772,
+                "opsPerGigacycle": 18.141215537289362,
+                "cpuAgreement": 0.9998898277288911
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 400,
+              "achieved": 135.3,
+              "saturated": true,
+              "shed": 15135,
+              "errors": 15135,
+              "p50": 5472.11,
+              "p90": 5987.43,
+              "p99": 6393.71,
+              "quoteP99": 6471.84,
+              "productP99": 5967.95,
+              "dispatchLagP99": 2.42,
+              "productCacheHitRate": 0.0874,
+              "invalidations": 11844,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.022,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.938,
+              "targetCpuMsPerOk": 14.4,
+              "targetMemoryBytes": 2128998400,
+              "targetPageCacheBytes": 1006252032,
+              "targetDiskReadBytes": 25509888,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 1.937
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.029,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.028,
+              "machineBusyCores": 1.966,
+              "unchargedVmCores": -0.028,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 495.13750481818073,
+                "cpuSeconds": 127.60536315330405,
+                "effectiveGHz": 3.880224879132443,
+                "ipc": 2.0598005219303532,
+                "opsPerGigacycle": 17.904117368881828,
+                "cpuAgreement": 0.9996089089024189
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 800,
+              "achieved": 130,
+              "saturated": true,
+              "shed": 39505,
+              "errors": 39505,
+              "p50": 5738.95,
+              "p90": 6163.92,
+              "p99": 6373.52,
+              "quoteP99": 6433.02,
+              "productP99": 5930.97,
+              "dispatchLagP99": 2.58,
+              "productCacheHitRate": 0.0829,
+              "invalidations": 11832,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.022,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.93,
+              "targetCpuMsPerOk": 14.903,
+              "targetMemoryBytes": 2147147776,
+              "targetPageCacheBytes": 1021128704,
+              "targetDiskReadBytes": 23437312,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 1.93
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.028,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.028,
+              "machineBusyCores": 1.962,
+              "unchargedVmCores": -0.024,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 489.9238966362294,
+                "cpuSeconds": 126.34759174236193,
+                "effectiveGHz": 3.8775879292993864,
+                "ipc": 2.0109662004114823,
+                "opsPerGigacycle": 17.339427732196484,
+                "cpuAgreement": 0.9980075624930277
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 1600,
+              "achieved": 128.5,
+              "saturated": true,
+              "shed": 87473,
+              "errors": 87473,
+              "p50": 5751.63,
+              "p90": 6268.05,
+              "p99": 6586.58,
+              "quoteP99": 6657.79,
+              "productP99": 6135.13,
+              "dispatchLagP99": 2.7,
+              "productCacheHitRate": 0.0723,
+              "invalidations": 12240,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.031,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.93,
+              "targetCpuMsPerOk": 14.952,
+              "targetMemoryBytes": 2146754560,
+              "targetPageCacheBytes": 1016348672,
+              "targetDiskReadBytes": 22364160,
+              "targetPageCacheRefaults": 2,
+              "cores": {
+                "harper": 1.928
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.036,
+              "otherContainerCores": 0.001,
+              "vmServicesCores": 0.027,
+              "machineBusyCores": 1.967,
+              "unchargedVmCores": -0.025,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 493.86134507707663,
+                "cpuSeconds": 127.36819775780734,
+                "effectiveGHz": 3.877430581346231,
+                "ipc": 1.9937841103010727,
+                "opsPerGigacycle": 17.265979783595327,
+                "cpuAgreement": 0.99899559213572
+              },
+              "clockDrift": false
+            }
+          ]
+        },
+        {
+          "file": "summary-harper-unbatched-2026-10-16T01-33-12-042Z.json",
+          "stamp": "20261016T013227Z",
+          "coldStartFirst200Ms": 4079,
+          "memoryBasis": "per cgroup: harper against its own 2048 MiB limit",
+          "harperMemory": {
+            "inputs": {
+              "constrainedMemoryBytes": 2147483648,
+              "totalmemBytes": 63202598912,
+              "cgroupMemoryMax": "2147483648",
+              "threads": 2
+            },
+            "configured": {
+              "threads.maxHeapMemory": null,
+              "storage.rocks.blockCacheSize": null,
+              "storage.rocks.writeBufferManagerSize": null
+            },
+            "resolved": {
+              "workerMaxOldGenerationMiB": 512,
+              "workerMaxYoungGenerationMiB": 16,
+              "rocksBlockCacheBytes": 536870912,
+              "rocksWriteBufferManagerBytes": 178956970
+            }
+          },
+          "host": null,
+          "contention": null,
+          "steps": [
+            {
+              "contended": false,
+              "offered": 25,
+              "achieved": 25,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 20.07,
+              "p90": 40.39,
+              "p99": 86.6,
+              "quoteP99": 99.76,
+              "productP99": 19.72,
+              "dispatchLagP99": 2.07,
+              "productCacheHitRate": 0.0416,
+              "invalidations": 12156,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.015,
+              "generatorSaturated": false,
+              "targetCpuLoad": 0.472,
+              "targetCpuMsPerOk": 18.868,
+              "targetMemoryBytes": 2045206528,
+              "targetPageCacheBytes": 956784640,
+              "targetDiskReadBytes": 6340608,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 0.471
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.018,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.026,
+              "machineBusyCores": 0.513,
+              "unchargedVmCores": -0.002,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 109.17407154431402,
+                "cpuSeconds": 28.17243603949676,
+                "effectiveGHz": 3.8752087817771894,
+                "ipc": 2.0691294415795864,
+                "opsPerGigacycle": 13.739526050296167,
+                "cpuAgreement": 0.9954261716109344
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 50,
+              "achieved": 49.8,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 19.7,
+              "p90": 61.19,
+              "p99": 146,
+              "quoteP99": 157.72,
+              "productP99": 34.17,
+              "dispatchLagP99": 2.08,
+              "productCacheHitRate": 0.027,
+              "invalidations": 11808,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.017,
+              "generatorSaturated": false,
+              "targetCpuLoad": 0.799,
+              "targetCpuMsPerOk": 16.068,
+              "targetMemoryBytes": 2054041600,
+              "targetPageCacheBytes": 964251648,
+              "targetDiskReadBytes": 11304960,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 0.799
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.02,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.026,
+              "machineBusyCores": 0.842,
+              "unchargedVmCores": -0.003,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 186.46052786951415,
+                "cpuSeconds": 48.072078887300165,
+                "effectiveGHz": 3.878769801211445,
+                "ipc": 2.1099257144513106,
+                "opsPerGigacycle": 16.08919611178733,
+                "cpuAgreement": 0.9972875219541096
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 100,
+              "achieved": 100,
+              "saturated": false,
+              "shed": 0,
+              "errors": 0,
+              "p50": 21.55,
+              "p90": 115.34,
+              "p99": 248.45,
+              "quoteP99": 280.52,
+              "productP99": 42.65,
+              "dispatchLagP99": 2.29,
+              "productCacheHitRate": 0.0538,
+              "invalidations": 12156,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.017,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.298,
+              "targetCpuMsPerOk": 12.982,
+              "targetMemoryBytes": 2069602304,
+              "targetPageCacheBytes": 972365824,
+              "targetDiskReadBytes": 20201472,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 1.297
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.021,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.026,
+              "machineBusyCores": 1.327,
+              "unchargedVmCores": -0.017,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 301.2963073000376,
+                "cpuSeconds": 77.6036500587599,
+                "effectiveGHz": 3.882501751810671,
+                "ipc": 2.2542881100701644,
+                "opsPerGigacycle": 19.913951331720327,
+                "cpuAgreement": 0.9963355840740051
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 200,
+              "achieved": 151.6,
+              "saturated": true,
+              "shed": 2212,
+              "errors": 2212,
+              "p50": 4751.62,
+              "p90": 5188.94,
+              "p99": 5415.55,
+              "quoteP99": 5454.69,
+              "productP99": 4963.75,
+              "dispatchLagP99": 2.31,
+              "productCacheHitRate": 0.0797,
+              "invalidations": 12120,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.04,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.946,
+              "targetCpuMsPerOk": 12.901,
+              "targetMemoryBytes": 2103312384,
+              "targetPageCacheBytes": 991256576,
+              "targetDiskReadBytes": 30097408,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 1.946
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.044,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.028,
+              "machineBusyCores": 2.001,
+              "unchargedVmCores": -0.017,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 490.70536033441425,
+                "cpuSeconds": 126.23506391967236,
+                "effectiveGHz": 3.887235012980757,
+                "ipc": 2.2121461236272117,
+                "opsPerGigacycle": 19.94679657326243,
+                "cpuAgreement": 0.9997196804357279
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 400,
+              "achieved": 155.3,
+              "saturated": true,
+              "shed": 13932,
+              "errors": 13932,
+              "p50": 4747.05,
+              "p90": 5165.15,
+              "p99": 5456.42,
+              "quoteP99": 5481.67,
+              "productP99": 5033.42,
+              "dispatchLagP99": 2.44,
+              "productCacheHitRate": 0.0872,
+              "invalidations": 11844,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.024,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.951,
+              "targetCpuMsPerOk": 12.597,
+              "targetMemoryBytes": 2134368256,
+              "targetPageCacheBytes": 1009872896,
+              "targetDiskReadBytes": 29450240,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 1.949
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.029,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.027,
+              "machineBusyCores": 1.982,
+              "unchargedVmCores": -0.023,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 492.9275210896124,
+                "cpuSeconds": 126.79658821666564,
+                "effectiveGHz": 3.887545619502907,
+                "ipc": 2.2208442734591824,
+                "opsPerGigacycle": 20.424909483132055,
+                "cpuAgreement": 0.9997253142682502
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 800,
+              "achieved": 156.7,
+              "saturated": true,
+              "shed": 37870,
+              "errors": 37870,
+              "p50": 4725.14,
+              "p90": 5131.06,
+              "p99": 5369.53,
+              "quoteP99": 5436.24,
+              "productP99": 4978.83,
+              "dispatchLagP99": 2.63,
+              "productCacheHitRate": 0.0911,
+              "invalidations": 11832,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.032,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.95,
+              "targetCpuMsPerOk": 12.442,
+              "targetMemoryBytes": 2144608256,
+              "targetPageCacheBytes": 1015463936,
+              "targetDiskReadBytes": 27574272,
+              "targetPageCacheRefaults": 0,
+              "cores": {
+                "harper": 1.949
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.037,
+              "otherContainerCores": 0,
+              "vmServicesCores": 0.028,
+              "machineBusyCores": 1.995,
+              "unchargedVmCores": -0.019,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 489.49268686287996,
+                "cpuSeconds": 125.92020921788804,
+                "effectiveGHz": 3.887324281806731,
+                "ipc": 2.2233499583667298,
+                "opsPerGigacycle": 20.69489549460355,
+                "cpuAgreement": 0.9990711812667169
+              },
+              "clockDrift": false
+            },
+            {
+              "contended": false,
+              "offered": 1600,
+              "achieved": 155.6,
+              "saturated": true,
+              "shed": 85831,
+              "errors": 85831,
+              "p50": 4762.72,
+              "p90": 5142.59,
+              "p99": 5412.66,
+              "quoteP99": 5512.72,
+              "productP99": 5041.67,
+              "dispatchLagP99": 2.7,
+              "productCacheHitRate": 0.0927,
+              "invalidations": 12240,
+              "writeFailures": 0,
+              "generatorCpuLoad": 0.033,
+              "generatorSaturated": false,
+              "targetCpuLoad": 1.948,
+              "targetCpuMsPerOk": 12.537,
+              "targetMemoryBytes": 2143105024,
+              "targetPageCacheBytes": 1011236864,
+              "targetDiskReadBytes": 25313280,
+              "targetPageCacheRefaults": 2,
+              "cores": {
+                "harper": 1.946
+              },
+              "throttledSeconds": {
+                "harper": 0
+              },
+              "generatorContainerCores": 0.038,
+              "otherContainerCores": -0.001,
+              "vmServicesCores": 0.027,
+              "machineBusyCores": 1.99,
+              "unchargedVmCores": -0.02,
+              "targetStats": null,
+              "cycles": {
+                "gigacycles": 494.96771755011275,
+                "cpuSeconds": 127.32956397243888,
+                "effectiveGHz": 3.887296100827385,
+                "ipc": 2.2362554929604523,
+                "opsPerGigacycle": 20.5447742134222,
+                "cpuAgreement": 0.9987193474541595
+              },
+              "clockDrift": false
+            }
+          ]
+        }
+      ],
+      "budget": {
+        "mode": "single container",
+        "cgroup": "/bench.slice/bench-target.slice",
+        "targetCpus": 2,
+        "targetMemoryMiB": 2048,
+        "harperThreads": 2
+      },
+      "build": {
+        "commit": "e6d8c195728ad53ad18abafd850b0fc0730c92e9",
+        "imageTag": "e6d8c195728a",
+        "source": "git archive of dd3a5f5^"
+      },
+      "images": [
+        "aab-harper-reference:e6d8c195728a@sha256:bc560c54efa6e8c265b9bc764b71c95e13a28c284cea96ef027924f1fb9e2ff8"
+      ],
+      "limits": {
+        "harper": {
+          "cpuMax": "max 100000",
+          "memoryMax": "2147483648"
+        }
+      }
+    }
+  }
+}
