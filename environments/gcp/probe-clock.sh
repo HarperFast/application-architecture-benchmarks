@@ -13,7 +13,8 @@
 # What a pass looks like (README "The clock"): cycles are countable per CPU and per cgroup,
 # the slices hold, and the target-only and all-busy medians agree within the session's drift
 # threshold: 2%, or three times the larger spread this probe measures, whichever is larger.
-# Trials whose effective frequency leaves the session median by more than that are re-run.
+# A trial is re-run when a step's effective frequency leaves, by more than that, the median of the
+# same step across the target's trials, or, at full budget, the session median of every such step.
 # On C4 with ALL_CORE_MAX on Granite Rapids, Google's documented all-core turbo is 3.9 GHz.
 set -euo pipefail
 

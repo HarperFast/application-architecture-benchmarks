@@ -86,15 +86,35 @@ const cyclesOf = (trial, step) => {
 	const c = cycleStep(trial, step);
 	return c?.target ? { ...c.target, opsPerGigacycle: c.opsPerGigacycle, cpuAgreement: c.cpuAgreement } : null;
 };
-// The session's clock: the median effective frequency over every accepted step of every target.
-// A step that leaves it by more than the drift threshold is flagged (environments/gcp: 2%, or three
-// times the spread the session's clock probe measured; DRIFT overrides).
-const sessionGHz = median(all.flatMap((t) => t.summary.steps.map((s) => cyclesOf(t, s)?.effectiveGHz)));
+// Clock drift (environments/gcp "The clock on GCP", decision 5). Effective frequency rises with how
+// busy the target's CPUs are, so a step is compared only with steps at the same utilization: with
+// the same step (target and offered rate) across the session's trials, and, where the target used
+// its whole CPU budget, with every such step of every target in the session. A step beyond the
+// drift threshold in either check marks its trial for re-running (2%, or three times the spread
+// the session's clock probe measured; DRIFT overrides).
 const DRIFT = Number(process.env.DRIFT ?? 0.02);
-const drifted = (trial, step) => {
-	const ghz = cyclesOf(trial, step)?.effectiveGHz;
-	return sessionGHz && ghz ? Math.abs(ghz - sessionGHz) / sessionGHz > DRIFT : false;
+const FULL_BUDGET = 0.95;
+const ghzOf = (trial, step) => (contended(step) ? null : cyclesOf(trial, step)?.effectiveGHz ?? null);
+const atFullBudget = (trial, step) => step.targetCpuLoad >= FULL_BUDGET * (trial.summary.conditions.budget?.targetCpus ?? Infinity);
+const stepKey = (trial, step) => `${trial.config}\t${step.offeredRate}`;
+const sameStep = Map.groupBy(all.flatMap((t) => t.summary.steps.map((s) => [stepKey(t, s), ghzOf(t, s)])), ([key]) => key);
+const stepGHz = new Map([...sameStep].map(([key, pairs]) => [key, median(pairs.map(([, ghz]) => ghz))]));
+const sessionGHz = median(all.flatMap((t) => t.summary.steps.filter((s) => atFullBudget(t, s)).map((s) => ghzOf(t, s))));
+const off = (ghz, ref) => (ghz && ref ? ghz / ref - 1 : null);
+const clockOf = (trial, step) => {
+	const ghz = ghzOf(trial, step);
+	if (!ghz) return null;
+	const full = atFullBudget(trial, step);
+	const fromStep = off(ghz, stepGHz.get(stepKey(trial, step)));
+	const fromSession = full ? off(ghz, sessionGHz) : null;
+	return { atFullBudget: full, fromStep, fromSession, drifted: Math.abs(fromStep) > DRIFT || Math.abs(fromSession ?? 0) > DRIFT };
 };
+const drifted = (trial, step) => !!clockOf(trial, step)?.drifted;
+const rerun = all.filter((t) => t.summary.steps.some((s) => drifted(t, s)));
+const pct = (x) => `${(x * 100).toFixed(2)}%`;
+/** The deviation of largest magnitude, with its sign. */
+const extreme = (xs) => xs.filter((x) => x !== null && x !== undefined).reduce((a, b) => (Math.abs(b) > Math.abs(a) ? b : a), 0);
+const largest = (pick) => extreme(all.flatMap((t) => t.summary.steps.map((s) => pick(clockOf(t, s) ?? {}))));
 // A STEP during which another container on the machine was busy is contaminated and excluded;
 // the trial's other steps still count. Each row reports how many clean observations it rests on.
 const trials = all;
@@ -119,9 +139,13 @@ const out = [];
 	const standing = tier === 2 ? 'tier 2, exploratory (step 0 for tier 2), not publishable' : 'tier 1 signal, not results';
 	out.push(`Dataset \`${c.dataset?.scale}\` generator ${c.dataset?.generatorVersion} · ecommerce-store ${commits} · ${standing}.`, '');
 	if (setAside.size) out.push(`Set aside and re-run: ${[...setAside].map(([f, why]) => `${f} (${why})`).join('; ')}.`, '');
-	if (sessionGHz) out.push(`Session clock: median effective ${sessionGHz.toFixed(3)} GHz over every step with cycle data; steps more than ${(DRIFT * 100).toFixed(0)}% from it are marked with †.`, '');
+	if (all.some((t) => t.cycles)) {
+		const session = sessionGHz ? `against the session median of every such step, ${sessionGHz.toFixed(3)} GHz, largest deviation ${pct(largest((c) => c.fromSession))}` : 'none in this session';
+		const verdict = rerun.length ? `Re-run: ${rerun.map((t) => `${t.file} (${t.summary.steps.filter((s) => drifted(t, s)).map((s) => s.offeredRate).join(', ')} rps)`).join('; ')}.` : 'No step drifted.';
+		out.push(`Clock drift beyond ${+(DRIFT * 100).toFixed(2)}%, marked †. Each step against the median of the same step across its target's trials: largest deviation ${pct(largest((c) => c.fromStep))}. Each step at full budget (target CPU at least ${FULL_BUDGET * 100}% of its budget) ${session}. ${verdict}`, '');
+	}
 }
-const compact = { session: basename(logPath), setAside: Object.fromEntries(setAside), sessionEffectiveGHz: sessionGHz, trialsWithContendedSteps: discarded.map((t) => t.file), configs: {} };
+const compact = { session: basename(logPath), setAside: Object.fromEntries(setAside), clock: { driftThreshold: DRIFT, fullBudgetShare: FULL_BUDGET, sessionFullBudgetGHz: sessionGHz, trialsToRerun: rerun.map((t) => t.file) }, trialsWithContendedSteps: discarded.map((t) => t.file), configs: {} };
 
 for (const config of configs) {
 	const group = trials.filter((t) => t.config === config);
@@ -154,7 +178,7 @@ for (const config of configs) {
 				unchargedVmCores: unchargedVmCores(s),
 				targetStats: s.targetStats ?? null,
 				cycles: cyclesOf(t, s),
-				clockDrift: drifted(t, s),
+				clock: clockOf(t, s),
 			})),
 		})),
 		budget: first.conditions.budget,
@@ -223,14 +247,18 @@ for (const config of configs) {
 
 	// Tier 2: cycles per step, from sample.sh via bench/cycles.mjs.
 	if (group.some((t) => t.cycles)) {
-		const head = ['offered rps', 'n', 'target gigacycles', 'effective GHz', 'IPC', 'ops per gigacycle', 'perf / cgroup CPU', 'generator GHz'];
-		out.push(`Cycles (tier 2, sample.sh joined to each step; † clock drift beyond ${(DRIFT * 100).toFixed(0)}%):`, '', `| ${head.join(' | ')} |`, `|${head.map(() => '-').join('|')}|`);
+		const head = ['offered rps', 'n', 'target gigacycles', 'effective GHz', 'off step median', 'off session, full budget', 'IPC', 'ops per gigacycle', 'perf / cgroup CPU', 'generator GHz'];
+		out.push(`Cycles (tier 2, sample.sh joined to each step; "off" columns: the largest deviation in the row; † clock drift beyond ${+(DRIFT * 100).toFixed(2)}%):`, '', `| ${head.join(' | ')} |`, `|${head.map(() => '-').join('|')}|`);
 		for (const rate of rates) {
 			const pairs = group.map((t) => [t, t.summary.steps.find((s) => s.offeredRate === rate)]).filter(([t, s]) => s && !contended(s) && cyclesOf(t, s));
 			if (!pairs.length) continue;
 			const cy = (pick, digits) => fmt(pairs.map(([t, s]) => pick(cyclesOf(t, s)) ?? NaN), digits);
 			const gen = fmt(pairs.map(([t, s]) => cycleStep(t, s)?.generator?.effectiveGHz ?? NaN), 3);
-			out.push(`| ${[rate, pairs.length, cy((c) => c.gigacycles, 1), cy((c) => c.effectiveGHz, 3) + (pairs.some(([t, s]) => drifted(t, s)) ? ' †' : ''), cy((c) => c.ipc, 2), cy((c) => c.opsPerGigacycle, 0), cy((c) => c.cpuAgreement, 2), gen].join(' | ')} |`);
+			const worst = (pick) => {
+				const xs = pairs.map(([t, s]) => pick(clockOf(t, s))).filter((x) => x !== null);
+				return xs.length ? pct(extreme(xs)) : '-';
+			};
+			out.push(`| ${[rate, pairs.length, cy((c) => c.gigacycles, 1), cy((c) => c.effectiveGHz, 3) + (pairs.some(([t, s]) => drifted(t, s)) ? ' †' : ''), worst((c) => c.fromStep), worst((c) => c.fromSession), cy((c) => c.ipc, 2), cy((c) => c.opsPerGigacycle, 0), cy((c) => c.cpuAgreement, 2), gen].join(' | ')} |`);
 		}
 		out.push('');
 	}
