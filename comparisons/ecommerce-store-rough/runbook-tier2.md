@@ -80,7 +80,7 @@ Rounds alternate the order (`harper fpr`, then `fpr harper`, ...). For each tria
 6. Joins the samples' cycles into the run record with ecommerce-store's `bench/cycles.mjs --write` (the join its own orchestrator runs with `SAMPLES_DIR`), stops the sampler, runs ecommerce-store's `verify-run-record.mjs` (which on tier 2 also fails a step without cycles, a target outside the slice or without its own memory limit, and on `bench` steps under 60 s, non-Poisson arrivals or base images not pinned by digest), checks `maintenance.log` for a migration or termination notice, runs `conditions.sh` into `results/raw/hostconditions-<target>-<stamp>/`, and for `fpr` the coherence audit. For the reference it also records, from inside the running target, the worker heap and RocksDB block-cache sizes Harper resolved from its 2 GiB container limit, with the inputs and the source lines of the rules it read (`results/raw/harper-memory-<target>-<stamp>.json`); the report prints them per trial.
 7. Stops the target.
 
-A trial that fails verification or the cycle join, saw a maintenance event, or had another container in the target slice is set aside and re-run (up to `MAX_ATTEMPTS` attempts, default 3, and only while `SESSION_MINUTES` allows). The set-aside attempt stays on disk and in the session log; nothing is deleted.
+A trial that fails verification or the cycle join, saw a maintenance event, or had another container in the target slice is set aside and re-run (up to `MAX_ATTEMPTS` attempts, default 3, and only while `SESSION_MINUTES` allows). The set-aside attempt stays on disk and in the session log; nothing is deleted. Clock drift is not among these: it compares a trial with the session's other trials, so the report judges it after the last trial ([6](#6-report)), and a trial it lists is re-run in the same session before teardown.
 
 ### What fits before the VM deletes itself
 
@@ -113,7 +113,7 @@ Keep a session on one commit of this repository: `run.sh` runs afresh for every 
 node scripts/report.mjs results/raw/session-<stamp>.log > results/session-<stamp>.md
 ```
 
-Per target and step: median and range across accepted trials of throughput, latency, CPU per request, memory, disk reads; for `fpr`, entity, aggregate and Redis keyspace hit rates, evictions, Postgres buffer hit rate and blocks read; on tier 2, gigacycles, effective GHz, IPC and ops per gigacycle, with any step whose clock left the session median by more than 2% marked (set `DRIFT` to the probe's threshold if it is larger).
+Per target and step: median and range across accepted trials of throughput, latency, CPU per request, memory, disk reads; for `fpr`, entity, aggregate and Redis keyspace hit rates, evictions, Postgres buffer hit rate and blocks read; on tier 2, gigacycles, effective GHz, IPC and ops per gigacycle, and the clock's two drift checks (`environments/gcp/README.md`, "The clock on GCP"): a step more than 2% from the median of the same step across its target's trials, or, at full budget, from the session median of every such step, is marked and its trial listed for a re-run (set `DRIFT` to the probe's threshold if it is larger).
 
 ## 7. Collect and tear down
 

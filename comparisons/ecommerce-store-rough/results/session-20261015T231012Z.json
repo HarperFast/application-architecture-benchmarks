@@ -1,7 +1,12 @@
 {
   "session": "session-20261015T231012Z.log",
   "setAside": {},
-  "sessionEffectiveGHz": 3.8816404064802064,
+  "clock": {
+    "driftThreshold": 0.02,
+    "fullBudgetShare": 0.95,
+    "sessionFullBudgetGHz": 3.886753040289018,
+    "trialsToRerun": []
+  },
   "trialsWithContendedSteps": [],
   "configs": {
     "harper reference": {
@@ -77,7 +82,12 @@
                 "opsPerGigacycle": 13.123667416219034,
                 "cpuAgreement": 0.9935139511199311
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": false,
+                "fromStep": 0,
+                "fromSession": null,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -123,7 +133,12 @@
                 "opsPerGigacycle": 16.25460689180004,
                 "cpuAgreement": 0.997371585902576
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": false,
+                "fromStep": 0.0002382735298949168,
+                "fromSession": null,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -169,7 +184,12 @@
                 "opsPerGigacycle": 18.806714198552918,
                 "cpuAgreement": 0.9984524585347598
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": false,
+                "fromStep": 0.00013716544158004496,
+                "fromSession": null,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -215,7 +235,12 @@
                 "opsPerGigacycle": 18.080438951432743,
                 "cpuAgreement": 0.9989967251544606
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": true,
+                "fromStep": 0,
+                "fromSession": 0.00004127432106626472,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -261,7 +286,12 @@
                 "opsPerGigacycle": 17.89092641138709,
                 "cpuAgreement": 0.9991939708292734
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": true,
+                "fromStep": 0,
+                "fromSession": 2.5750143817226956e-7,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -307,7 +337,12 @@
                 "opsPerGigacycle": 18.402980307862816,
                 "cpuAgreement": 0.9985445089627347
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": true,
+                "fromStep": 0.00004018487662982295,
+                "fromSession": 0.00011857277229587737,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -353,7 +388,12 @@
                 "opsPerGigacycle": 18.44366238670789,
                 "cpuAgreement": 0.9993379306228355
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": true,
+                "fromStep": 0,
+                "fromSession": 0.000047104267215214435,
+                "drifted": false
+              }
             }
           ]
         },
@@ -428,7 +468,12 @@
                 "opsPerGigacycle": 13.172533772336575,
                 "cpuAgreement": 0.9978354496248916
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": false,
+                "fromStep": -0.0016770672398679354,
+                "fromSession": null,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -474,7 +519,12 @@
                 "opsPerGigacycle": 16.31081483497452,
                 "cpuAgreement": 0.9979326092564148
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": false,
+                "fromStep": -0.0015906816790681733,
+                "fromSession": null,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -520,7 +570,12 @@
                 "opsPerGigacycle": 19.178767445725406,
                 "cpuAgreement": 0.9987770220800989
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": false,
+                "fromStep": -0.0011979901868730547,
+                "fromSession": null,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -566,7 +621,12 @@
                 "opsPerGigacycle": 17.859395178439684,
                 "cpuAgreement": 0.999036727297071
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": true,
+                "fromStep": -0.0024743008311234327,
+                "fromSession": -0.0024331286351439996,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -612,7 +672,12 @@
                 "opsPerGigacycle": 19.878706118639986,
                 "cpuAgreement": 0.9979655801570889
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": true,
+                "fromStep": -0.00006813416931716887,
+                "fromSession": -0.00006787668542374004,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -658,7 +723,12 @@
                 "opsPerGigacycle": 19.72427579507784,
                 "cpuAgreement": 0.9987617062642116
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": true,
+                "fromStep": -0.00007863608335356709,
+                "fromSession": -2.5750143817226956e-7,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -704,7 +774,12 @@
                 "opsPerGigacycle": 19.72967039072448,
                 "cpuAgreement": 0.9983627496966475
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": true,
+                "fromStep": -0.0000722831166480864,
+                "fromSession": -0.00002518225427616816,
+                "drifted": false
+              }
             }
           ]
         },
@@ -779,7 +854,12 @@
                 "opsPerGigacycle": 13.547138777475551,
                 "cpuAgreement": 0.996335880280081
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": false,
+                "fromStep": 0.000063845212572744,
+                "fromSession": null,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -825,7 +905,12 @@
                 "opsPerGigacycle": 16.96238022567088,
                 "cpuAgreement": 0.9962849767546603
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": false,
+                "fromStep": 0,
+                "fromSession": null,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -871,7 +956,12 @@
                 "opsPerGigacycle": 19.947028251407026,
                 "cpuAgreement": 0.9975138553764393
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": false,
+                "fromStep": 0,
+                "fromSession": null,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -917,7 +1007,12 @@
                 "opsPerGigacycle": 19.106729811756075,
                 "cpuAgreement": 0.9998019544529055
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": true,
+                "fromStep": 0.00007542216743727792,
+                "fromSession": 0.0001166996015022903,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -963,7 +1058,12 @@
                 "opsPerGigacycle": 19.983486817346613,
                 "cpuAgreement": 0.9997086748362156
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": true,
+                "fromStep": 0.00014020847958429172,
+                "fromSession": 0.00014046601712647266,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -1009,7 +1109,12 @@
                 "opsPerGigacycle": 19.88316344517776,
                 "cpuAgreement": 0.9996123930405546
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": true,
+                "fromStep": 0,
+                "fromSession": 0.0000783847457848097,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -1055,7 +1160,12 @@
                 "opsPerGigacycle": 18.954005302497325,
                 "cpuAgreement": 0.9992651353912232
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": true,
+                "fromStep": 0.0000972456067278582,
+                "fromSession": 0.0001443544546260167,
+                "drifted": false
+              }
             }
           ]
         }
@@ -1155,7 +1265,12 @@
                 "opsPerGigacycle": 12.354410214290661,
                 "cpuAgreement": 0.9974984656420622
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": false,
+                "fromStep": -0.00016057593095286649,
+                "fromSession": null,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -1201,7 +1316,12 @@
                 "opsPerGigacycle": 15.546654001328582,
                 "cpuAgreement": 0.9953035228054767
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": false,
+                "fromStep": -0.0006443831419812307,
+                "fromSession": null,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -1247,7 +1367,12 @@
                 "opsPerGigacycle": 16.175661540318664,
                 "cpuAgreement": 0.9993792742155674
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": false,
+                "fromStep": -0.00344955498277133,
+                "fromSession": null,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -1293,7 +1418,12 @@
                 "opsPerGigacycle": 16.849926957179232,
                 "cpuAgreement": 0.9988800103429878
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": true,
+                "fromStep": -0.0008396860267476658,
+                "fromSession": -0.0019229820239423656,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -1339,7 +1469,12 @@
                 "opsPerGigacycle": 17.389960515980817,
                 "cpuAgreement": 0.9997740278831607
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": true,
+                "fromStep": 0,
+                "fromSession": -0.0012872454874470751,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -1385,7 +1520,12 @@
                 "opsPerGigacycle": 17.578106777214142,
                 "cpuAgreement": 0.9975715936034466
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": true,
+                "fromStep": 0,
+                "fromSession": -0.001826775928406299,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -1431,7 +1571,12 @@
                 "opsPerGigacycle": 16.99358785672098,
                 "cpuAgreement": 0.9988303549094689
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": true,
+                "fromStep": 0,
+                "fromSession": -0.001343553925747254,
+                "drifted": false
+              }
             }
           ]
         },
@@ -1506,7 +1651,12 @@
                 "opsPerGigacycle": 12.509172047036712,
                 "cpuAgreement": 0.9979209328955669
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": false,
+                "fromStep": 0,
+                "fromSession": null,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -1552,7 +1702,12 @@
                 "opsPerGigacycle": 15.54661650354578,
                 "cpuAgreement": 0.9976875575906947
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": false,
+                "fromStep": 0,
+                "fromSession": null,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -1598,7 +1753,12 @@
                 "opsPerGigacycle": 18.75046794995432,
                 "cpuAgreement": 0.9979339989347241
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": false,
+                "fromStep": 0,
+                "fromSession": null,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -1644,7 +1804,12 @@
                 "opsPerGigacycle": 18.141215537289362,
                 "cpuAgreement": 0.9998898277288911
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": true,
+                "fromStep": 0,
+                "fromSession": -0.0010842063901507215,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -1690,7 +1855,12 @@
                 "opsPerGigacycle": 17.904117368881828,
                 "cpuAgreement": 0.9996089089024189
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": true,
+                "fromStep": -0.00039285268486422,
+                "fromSession": -0.0016795924744654744,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -1736,7 +1906,12 @@
                 "opsPerGigacycle": 17.339427732196484,
                 "cpuAgreement": 0.9980075624930277
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": true,
+                "fromStep": -0.0005322342475703179,
+                "fromSession": -0.0023580379032649423,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -1782,7 +1957,12 @@
                 "opsPerGigacycle": 17.265979783595327,
                 "cpuAgreement": 0.99899559213572
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": true,
+                "fromStep": -0.0010563864259630629,
+                "fromSession": -0.0023985210395806034,
+                "drifted": false
+              }
             }
           ]
         },
@@ -1857,7 +2037,12 @@
                 "opsPerGigacycle": 13.739526050296167,
                 "cpuAgreement": 0.9954261716109344
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": false,
+                "fromStep": 0.0012708156167724471,
+                "fromSession": null,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -1903,7 +2088,12 @@
                 "opsPerGigacycle": 16.08919611178733,
                 "cpuAgreement": 0.9972875219541096
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": false,
+                "fromStep": 0.0006634705261043816,
+                "fromSession": null,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -1949,7 +2139,12 @@
                 "opsPerGigacycle": 19.913951331720327,
                 "cpuAgreement": 0.9963355840740051
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": false,
+                "fromStep": 0.00012971863217070556,
+                "fromSession": null,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -1995,7 +2190,12 @@
                 "opsPerGigacycle": 19.94679657326243,
                 "cpuAgreement": 0.9997196804357279
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": true,
+                "fromStep": 0.0012095217015493098,
+                "fromSession": 0.0001240039402408133,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -2041,7 +2241,12 @@
                 "opsPerGigacycle": 20.424909483132055,
                 "cpuAgreement": 0.9997253142682502
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": true,
+                "fromStep": 0.001493085534157279,
+                "fromSession": 0.00020391807909403425,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -2087,7 +2292,12 @@
                 "opsPerGigacycle": 20.69489549460355,
                 "cpuAgreement": 0.9990711812667169
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": true,
+                "fromStep": 0.001977359516523114,
+                "fromSession": 0.00014697139535013726,
+                "drifted": false
+              }
             },
             {
               "contended": false,
@@ -2133,7 +2343,12 @@
                 "opsPerGigacycle": 20.5447742134222,
                 "cpuAgreement": 0.9987193474541595
               },
-              "clockDrift": false
+              "clock": {
+                "atFullBudget": true,
+                "fromStep": 0.0014852703422330027,
+                "fromSession": 0.00013972087568681069,
+                "drifted": false
+              }
             }
           ]
         }
