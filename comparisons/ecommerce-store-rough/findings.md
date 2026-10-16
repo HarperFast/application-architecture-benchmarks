@@ -30,6 +30,15 @@ On `dev` generator 0.5.0, at 2 CPU / 2 GiB per target, three alternating trials 
 
 The quote-path gap is not yet an architecture finding. The reference reads each cart line's variant and then its product sequentially, and each inventory row individually; the stack batches every wave into one round trip and overlaps independent waves. That is an implementation choice the reference could adopt. Per the methodology, a separated stack beating Harper is published as measured and investigated; the first investigation is to give the reference the same batching and re-measure, at `bench` scale, on a Linux host. ecommerce-store `dd3a5f5` has since batched the reference's quote reads; every session here predates it, and the tier-2 session can run both builds (`harper` and `harper-unbatched`).
 
+### Re-run on merged `main`, 2026-10-16
+
+Two alternating trials each, the same ladder, no contended steps ([tables](results/session-20261016T192303Z.md)). Code: ecommerce-store `7e7d48b`, where the reference's quote finds promotion candidates through one combined index (HarperFast/ecommerce-store#5), and this repository at `c69ff4c`, with the stack's tuning (#10). Both changed at once, so their effects are not separated here.
+
+- The reference served every step through 3,200 rps except 1,200, where one trial shed 146 arrivals, and it saturated at about 4,700 to 4,800 rps, against about 2,600 to 3,100 before. Its CPU per request at 2,400 rps fell from 0.66 to 0.46 ms.
+- The stack's CPU per request at 2,400 rps stayed at 0.34 ms, and it reached 7,980 rps at 8,000 offered. From 4,000 rps one of its two trials shed 398 to 1,246 arrivals per step.
+- The CPU-per-request gap at matched rates narrowed from about 2.0× to 1.35 to 1.51×. That is before the stack's 0.3 to 0.65 cores of uncharged kernel time ([trap 1](#measurement-traps)), which persists on this machine.
+- Conformance (24 of 24 each), the differential check (42,004 of 42,004 equal) and coherence pass at these commits.
+
 ## What was built
 
 - [`implementations/fastify-postgres-redis`](../../implementations/fastify-postgres-redis): the application, containerized; its README covers the data model mapping, caching mechanism and configuration.
@@ -81,7 +90,7 @@ In short (reasons in the implementation README):
 
 ## Correctness
 
-- **Conformance** (`e2e/` at `f47978b`, unchanged since `5c32151`; dataset 0.5.0): 24 of 24 tests on both targets, re-run at `f47978b` on 2026-10-15 ([fpr](results/conformance-fpr-dataset-0.5.0.json), [harper](results/conformance-harper-dataset-0.5.0.json)); also 24 of 24 on 0.4.0 ([fpr](results/conformance-fpr-dataset-0.4.0.json), [harper](results/conformance-harper-dataset-0.4.0.json)). DATA-001/003/005 are properties of the dataset and the loader (the loader verifies every file's sha256 and row count before writing and records the manifest); DATA-004 is not met by `dev` by design.
+- **Conformance** (`e2e/` at `f47978b`, unchanged since `5c32151`; dataset 0.5.0): 24 of 24 tests on both targets, re-run at `f47978b` on 2026-10-15 and at `7e7d48b` (with this repository at `c69ff4c`) on 2026-10-16 ([fpr](results/conformance-fpr-dataset-0.5.0.json), [harper](results/conformance-harper-dataset-0.5.0.json)); also 24 of 24 on 0.4.0 ([fpr](results/conformance-fpr-dataset-0.4.0.json), [harper](results/conformance-harper-dataset-0.4.0.json)). DATA-001/003/005 are properties of the dataset and the loader (the loader verifies every file's sha256 and row count before writing and records the manifest); DATA-004 is not met by `dev` by design.
 - **`verify-coherence.mjs`** (concurrent readers and price writers, then every view must show the last price within FRESH_MS): passes on both, on both datasets ([fpr](results/coherence-fpr-dataset-0.5.0.txt), [harper](results/coherence-harper-dataset-0.5.0.txt); 0.4.0: [fpr](results/coherence-fpr-dataset-0.4.0.txt), [harper](results/coherence-harper-dataset-0.4.0.txt)).
 - **Differential check** ([0.5.0](results/diff-reference-dataset-0.5.0.json), [0.4.0](results/diff-reference-dataset-0.4.0.json)): every quote (2,000 carts), every product x 5 tiers (the four in the table plus one outside it) x 4 regions, and the 404 and 400 cases, compared response by response on freshly restored data: **42,004 of 42,004 equal** on each dataset. The pricing engine here was written from SPEC.md, not copied. Agreement between two independent implementations is evidence, not ground truth; the plan's independently computed expected values are still needed.
 - **Coherence audit** after every measured trial of the stack, on both datasets: 6,720 cached responses, weighted to the hot set the workload wrote to, byte-identical to the same responses computed from Postgres alone.
