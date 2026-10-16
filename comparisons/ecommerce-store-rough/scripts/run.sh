@@ -11,6 +11,8 @@
 #                                         ladder with per-container CPU, verify, join cycles (tier 2)
 #   scripts/run.sh audit                  fpr only: cached vs source-of-truth responses, after a run
 #   scripts/run.sh coherence <target>     the reference's verify-coherence.mjs (readers racing writers)
+#   scripts/run.sh timing <target>        diagnostic: the target's Server-Timing phases, one request at a time
+#   scripts/run.sh start <target>         restore and cold-start one target and leave it running (diagnostics)
 #   scripts/run.sh stop                   stop every container in this project
 #
 # Targets: `fpr` (Fastify + Postgres + Redis), `harper` (the reference, built from the
@@ -33,6 +35,7 @@
 #   HARNESS_DATASET_HOST      the expanded dataset the generator reads (default: dataset/dev, or
 #                             .work/dataset/bench prepared by ecommerce-store scripts/prepare-dataset.mjs)
 #   WAIT_FOR_IDLE      tier 1: seconds to wait for other projects' containers to go idle (900)
+#   DIFF_ARGS          extra diff-reference.mjs flags, e.g. --cart-stride 30 --product-stride 400 on bench
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -190,6 +193,14 @@ configure_budget() {
 	# Node: the primary and each worker get the same heap cap; about 190 MiB of the container is
 	# left for the primary, buffers and the page cache of the Node binary and modules.
 	export NODE_HEAP_MIB="${NODE_HEAP_MIB:-$(( (APP_MEMORY_MIB - 192) / APP_WORKERS ))}"
+	# The young generation, which --max-old-space-size does not set. Node 24's V8 derives it from
+	# the container limit and gives a 512 MiB container its minimum, a 1 MiB semi-space; above its
+	# low-memory class it uses a quarter of the limit for old space and a sixteenth of that per
+	# semi-space (measured: 16 MiB at 1 GiB, 32 at 2 GiB). That rule, applied to the app container:
+	# limit / 64 MiB, within V8's bounds of 1 and 64 (8 MiB at 512 MiB; 24 MiB of young
+	# generation per process at most).
+	local semi=$(( APP_MEMORY_MIB / 64 ))
+	export NODE_SEMI_SPACE_MIB="${NODE_SEMI_SPACE_MIB:-$(( semi < 1 ? 1 : semi > 64 ? 64 : semi ))}"
 	# Postgres: the manual's starting points, against the container.
 	export PG_SHARED_BUFFERS="${PG_SHARED_BUFFERS:-$(( PG_MEMORY_MIB / 4 ))MB}"
 	export PG_EFFECTIVE_CACHE_SIZE="${PG_EFFECTIVE_CACHE_SIZE:-$(( PG_MEMORY_MIB * 3 / 4 ))MB}"
@@ -206,7 +217,14 @@ configure_budget() {
 }
 
 base_of() { case "$1" in harper-unbatched) echo harper ;; *) echo "$1" ;; esac; }
-snapshot_of() { echo "$(base_of "$1")-$SCALE-dataset-$DATASET_GENERATOR.tar$([ "$SNAPSHOT_COMPRESS" = 1 ] && echo .gz)"; }
+# fpr's snapshot also names the schema, indexes and loader it was loaded with: a changed storage
+# parameter or index must not restore an older load (the reference's schema is the checkout's).
+FPR_APP="$REPO/implementations/fastify-postgres-redis/app"
+schema_tag() {
+	node -e 'const h = require("node:crypto").createHash("sha256"); for (const f of process.argv.slice(1)) h.update(require("node:fs").readFileSync(f)); console.log(h.digest("hex").slice(0, 8))' \
+		"$FPR_APP/sql/schema.sql" "$FPR_APP/sql/indexes.sql" "$FPR_APP/src/load-dataset.js"
+}
+snapshot_of() { echo "$(base_of "$1")-$SCALE-dataset-$DATASET_GENERATOR$([ "$1" = fpr ] && echo "-schema-$(schema_tag)").tar$([ "$SNAPSHOT_COMPRESS" = 1 ] && echo .gz)"; }
 services_of() { if [ "$1" = fpr ]; then echo "postgres redis app"; else echo "harper"; fi; }
 profile_of() { if [ "$1" != fpr ]; then echo "--profile harper"; fi; }
 port_of() { if [ "$1" = fpr ]; then echo "${APP_HOST_PORT:-39926}"; else echo "${HARPER_HOST_PORT:-39936}"; fi; }
@@ -246,7 +264,11 @@ select_variant() {
 
 build_target() {
 	select_variant "$1"
-	if [ "$1" = fpr ]; then compose build app; else compose --profile harper build harper; fi
+	# Docker's Compose builds through Buildx Bake, which refuses a Dockerfile outside both the build
+	# context and this compose project's directory without an fs entitlement Compose cannot pass:
+	# harper-unbatched builds .targets/<commit> with the checkout's containers/Dockerfile. Podman's
+	# builder has no such check. Seen first on the tier-2 host (Compose 5.6.0, Buildx 0.38.0).
+	if [ "$1" = fpr ]; then compose build app; else BUILDX_BAKE_ENTITLEMENTS_FS=0 compose --profile harper build harper; fi
 }
 
 stop_target() {
@@ -414,7 +436,7 @@ conditions_json() {
 				    cpus: { app: env.APP_CPUS, postgres: env.PG_CPUS, redis: env.REDIS_CPUS },
 				    memoryMiB: { app: +env.APP_MEMORY_MIB, postgres: +env.PG_MEMORY_MIB, redis: +env.REDIS_MEMORY_MIB },
 				    memoryLimitMiB: { app: +env.APP_MEMORY_LIMIT_MIB, postgres: +env.PG_MEMORY_LIMIT_MIB, redis: +env.REDIS_MEMORY_LIMIT_MIB },
-				    sizing: { workers: +env.APP_WORKERS, nodeHeapMiB: +env.NODE_HEAP_MIB, pgSharedBuffers: env.PG_SHARED_BUFFERS, pgEffectiveCacheSize: env.PG_EFFECTIVE_CACHE_SIZE, pgWorkMem: env.PG_WORK_MEM || "4MB", redisMaxmemoryMB: +env.REDIS_MAXMEMORY_MB } }
+				    sizing: { workers: +env.APP_WORKERS, nodeHeapMiB: +env.NODE_HEAP_MIB, nodeSemiSpaceMiB: +env.NODE_SEMI_SPACE_MIB, pgSharedBuffers: env.PG_SHARED_BUFFERS, pgEffectiveCacheSize: env.PG_EFFECTIVE_CACHE_SIZE, pgWorkMem: env.PG_WORK_MEM || "4MB", redisMaxmemoryMB: +env.REDIS_MAXMEMORY_MB } }
 				: { mode: "single container", cgroup: env.TIER === "2" ? "/bench.slice/bench-target.slice" : null, targetCpus: +env.TARGET_CPUS, targetMemoryMiB: +env.TARGET_MEMORY_MIB, harperThreads: +(env.HARPER_THREADS || 2) },
 			lifecycle: { coldStartFirst200Ms: +cold, restoredFromSnapshot: true },
 			networking: "user-defined bridge (compose), plain HTTP; generator in a separate container on the same bridge",
@@ -456,6 +478,49 @@ post_run_stats() {
 		echo '{}' > "$file"
 	fi
 	echo "$file"
+}
+
+# Harper sizes each worker's heap and its RocksDB block cache from process.constrainedMemory()
+# unless threads.maxHeapMemory and storage.rocks.blockCacheSize are configured, and the reference
+# configures neither (environments/gcp/ecommerce-store-gaps.md, "Open"). Record what they resolved
+# to in this trial, from inside the running target after the ladder: the inputs, any configured
+# overrides, the sizes Harper's rules give, and the source lines those rules were read from, so a
+# Harper release that changes them shows in the record.
+HARPER_MEMORY_JS='
+import { readFileSync } from "node:fs";
+import { totalmem } from "node:os";
+const MB = 2 ** 20;
+const dist = "/usr/local/lib/node_modules/harper/dist";
+const rules = (file, re) => { try { return readFileSync(`${dist}/${file}`, "utf8").split("\n").map((l, i) => [i + 1, l.trim()]).filter(([, l]) => re.test(l)).map(([n, l]) => `${file}:${n}: ${l}`); } catch (e) { return [`${file}: ${e.message}`]; } };
+const auth = "Basic " + Buffer.from(`${process.env.HDB_ADMIN_USERNAME}:${process.env.HDB_ADMIN_PASSWORD}`).toString("base64");
+const op = async (body) => { try { const r = await fetch("http://localhost:9925/", { method: "POST", headers: { "content-type": "application/json", authorization: auth }, body: JSON.stringify(body) }); return await r.json(); } catch (e) { return { error: e.message }; } };
+const config = await op({ operation: "get_configuration" });
+const info = await op({ operation: "system_information", attributes: ["threads", "memory"] });
+const constrained = process.constrainedMemory?.();
+const total = totalmem();
+const threads = config.threads?.count ?? null;
+const heap = config.threads?.maxHeapMemory ?? null;
+const cache = config.storage?.rocks?.blockCacheSize ?? null;
+const wbm = config.storage?.rocks?.writeBufferManagerSize ?? null;
+// As Harper 5.3.2 computes them: server/threads/manageThreads.js startWorker (old space per worker,
+// "||" on constrainedMemory) and utility/rocksMemoryConfig.js via resources/databases.js ("??").
+const heapMiB = heap ?? Math.max(Math.floor(Math.min(constrained || total, total, 20000 * MB) / MB / (10 + (threads || 1) / 4)), 512);
+const cacheBytes = Math.floor(typeof cache === "number" && cache > 0 ? cache : Math.min(constrained ?? Infinity, total) * 0.25);
+console.log(JSON.stringify({
+	harperVersion: process.env.HARPER_VERSION,
+	inputs: { constrainedMemoryBytes: constrained, totalmemBytes: total, cgroupMemoryMax: readFileSync("/sys/fs/cgroup/memory.max", "utf8").trim(), threads },
+	configured: { "threads.maxHeapMemory": heap, "storage.rocks.blockCacheSize": cache, "storage.rocks.writeBufferManagerSize": wbm },
+	resolved: {
+		workerMaxOldGenerationMiB: heapMiB, workerMaxYoungGenerationMiB: Math.min(Math.max(heapMiB >> 6, 16), 64),
+		rocksBlockCacheBytes: cacheBytes, rocksWriteBufferManagerBytes: Math.floor(typeof wbm === "number" ? wbm : cacheBytes / 3),
+	},
+	reported: { threads: info.threads ?? info, memory: info.memory ?? null },
+	rules: [...rules("server/threads/manageThreads.js", /availableMemory|maxOldMemory =|maxYoungMemory =|THREADS_MAXHEAPMEMORY\)/), ...rules("utility/rocksMemoryConfig.js", /availableMemory \* 0\.25|blockCacheSize \/ 3/), ...rules("resources/databases.js", /availableMemory: /)],
+}, null, 2));
+'
+harper_memory() {
+	local file="$RAW/harper-memory-$1-$2.json"
+	"$CLI" exec "$(ctr harper)" node --input-type=module -e "$HARPER_MEMORY_JS" > "$file" 2>&1 || say "Harper memory sizing not recorded (not fatal): $file"
 }
 
 # One trial of one target. Leaves the run record, the wrapper's summary, the conditions, the
@@ -522,6 +587,7 @@ bench() {
 		fi
 		if [ -n "$samples" ]; then sudo systemctl stop "arch-bench-sampler-$stamp" || true; fi
 		post_run_stats "$target" "$stamp" >/dev/null
+		if [ "$target" != fpr ]; then harper_memory "$target" "$stamp"; fi
 		if [ -z "$record" ]; then
 			fault "no run record"
 		else
@@ -535,12 +601,19 @@ bench() {
 			if [ -n "$samples" ] && grep -qE ',(MIGRATE|TERMINATE)' "$samples/maintenance.log" 2>/dev/null; then
 				fault "host maintenance event"
 			fi
+			# The verifier checks that a page-cache drop was configured; the host samples show whether
+			# it emptied the target slice before the cold start (scripts/page-cache-drop.mjs).
+			if [ -n "$samples" ] && [ -n "$PRE_START_HOOK" ]; then
+				node "$HERE/scripts/page-cache-drop.mjs" "$samples" "$conditions" > "$RAW/drop-$target-$stamp.json" || fault "page cache not dropped"
+			fi
 		fi
 		# Tier 2: environments/gcp/conditions.sh after the trial: container state and image digests.
 		if [ -n "${CONDITIONS_SH:-}" ]; then
 			sudo bash "$CONDITIONS_SH" "$RAW/hostconditions-$target-$stamp" "$REPO" "$ECOMMERCE_STORE_DIR" >/dev/null 2>&1 || say "conditions.sh failed (recorded, not fatal)"
 		fi
-		if [ "$target" = fpr ]; then audit | tee -a "$RAW/console-$target-$stamp.txt"; fi
+		# A stale response voids the trial like a failed verification. `|| fault`, not a bare pipe:
+		# under set -e a failing audit would end run.sh before the verdict and the target's stop.
+		if [ "$target" = fpr ]; then audit "${record:+$RAW/$record}" | tee -a "$RAW/console-$target-$stamp.txt" || fault "coherence audit failed"; fi
 		# Targets share bench-target.slice on tier 2: never leave one resident inside the next one's budget.
 		stop_target "$target"
 		say "trial $target $stamp: $verdict"
@@ -570,8 +643,9 @@ diff_reference() {
 	say "restoring both targets and starting them side by side (correctness only, not a measurement)"
 	restore fpr; restore harper
 	cold_start fpr; cold_start harper
+	# shellcheck disable=SC2086
 	node "$HERE/scripts/diff-reference.mjs" --a "http://localhost:$(port_of harper)" --b "http://localhost:$(port_of fpr)" \
-		--dataset "$HARNESS_DATASET_HOST" --out "$HERE/results/diff-reference-dataset-$DATASET_GENERATOR.json"
+		--dataset "$HARNESS_DATASET_HOST" --out "$HERE/results/diff-reference-dataset-$DATASET_GENERATOR.json" ${DIFF_ARGS:-}
 	stop_target harper
 }
 
@@ -588,10 +662,28 @@ coherence() {
 	restore "$target"
 }
 
+# Diagnostic, not a measurement: the target's own Server-Timing phases (data, compute, total), one
+# request at a time, on a freshly restored target after a short warm-up of the hottest keys.
+timing() {
+	local target="$1" stamp out
+	stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+	out="$RAW/timing-$target-$stamp.json"
+	for t in $(all_targets); do stop_target "$t"; done
+	restore "$target"
+	cold_start "$target"
+	say "Server-Timing diagnostic against $target"
+	node "$HERE/scripts/server-timing.mjs" --url "http://localhost:$(port_of "$target")" --dataset "$HARNESS_DATASET_HOST" \
+		--ecommerce-store "$ECOMMERCE_STORE_DIR" ${TIMING_ARGS:-} > "$out"
+	stop_target "$target"
+	echo "$out"
+}
+
 audit() {
 	say "coherence audit: cached responses vs responses computed from Postgres alone"
 	sleep 2 # writes have stopped; FRESH_MS is 1000
-	node "$HERE/scripts/audit-coherence.mjs" --url "http://localhost:$(port_of fpr)" --dataset "$HARNESS_DATASET_HOST"
+	# The run record, when there is one, names the write stream the audit rebuilds.
+	node "$HERE/scripts/audit-coherence.mjs" --url "http://localhost:$(port_of fpr)" --dataset "$HARNESS_DATASET_HOST" \
+		--ecommerce-store "$ECOMMERCE_STORE_DIR" ${1:+--record "$1"}
 }
 
 cmd="${1:-}"; shift || true
@@ -604,6 +696,8 @@ case "$cmd" in
 	bench) setup; TRIALS="${TRIALS:-1}"; bench "${1:?target}" ;;
 	audit) setup; audit ;;
 	coherence) setup; coherence "${1:?target}" ;;
+	timing) setup; timing "${1:?target}" ;;
+	start) setup; for t in $(all_targets); do stop_target "$t"; done; restore "${1:?target}"; cold_start "$1" ;;
 	stop) setup; for t in $(all_targets); do stop_target "$t"; done ;;
 	*) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 1 ;;
 esac

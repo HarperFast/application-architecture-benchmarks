@@ -1,6 +1,7 @@
 /**
  * Build one Fastify instance with its Postgres pool and Redis client.
  */
+import { getHeapStatistics } from 'node:v8';
 import Fastify, { LogController } from 'fastify';
 import { config } from './config.js';
 import { createPool, query, SQL } from './db.js';
@@ -106,6 +107,13 @@ export async function buildApp() {
 				redis: /redis_version:(\S+)/.exec(redisInfo)?.[1] ?? null,
 			},
 			config: { ...config, databaseUrl: undefined },
+			// What this worker's V8 resolved from NODE_OPTIONS and the container limit: the heap
+			// limit is old space plus the young generation (three semi-spaces).
+			runtime: {
+				nodeOptions: process.env.NODE_OPTIONS ?? null,
+				constrainedMemoryBytes: process.constrainedMemory() || null,
+				heapSizeLimitBytes: getHeapStatistics().heap_size_limit,
+			},
 		};
 	});
 

@@ -25,13 +25,18 @@ export const config = Object.freeze({
 	freshMs: int('FRESH_MS', 1000),
 	/** Product aggregate expiry backstop. Matches the reference's ProductView expiration (120 s). */
 	viewTtlMs: int('VIEW_TTL_MS', 120_000),
-	/** Entity cache expiry backstop. Freshness comes from invalidation; this bounds memory. */
-	entityTtlMs: int('ENTITY_TTL_MS', 300_000),
 	/**
-	 * Lifetime of a generation (invalidation token) key. Must exceed every cached value's TTL and
-	 * the longest possible fill (bounded by pgStatementTimeoutMs); see cache.js for why.
+	 * Entity cache expiry backstop. Freshness comes from invalidation, and Redis's LRU bounds
+	 * memory: an hour outlasts a whole trial, so on `bench` the cache fills to maxmemory and
+	 * evicts rather than expiring. At 300 s, expiry bounded it well below maxmemory at every rate
+	 * under the top step of the first tier-2 sessions (implementation review P5).
 	 */
-	genTtlMs: int('GEN_TTL_MS', 600_000),
+	entityTtlMs: int('ENTITY_TTL_MS', 3_600_000),
+	/**
+	 * Lifetime of a generation (invalidation token). Must exceed every cached value's TTL and the
+	 * longest possible fill (bounded by pgStatementTimeoutMs); see cache.js for why.
+	 */
+	genTtlMs: int('GEN_TTL_MS', 7_200_000),
 	logLevel: process.env.LOG_LEVEL ?? 'warn',
 });
 

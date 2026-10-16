@@ -5,8 +5,8 @@
 # the page cache, and cold-starts the target (scripts/run.sh bench).
 #
 # A trial is re-run, up to MAX_ATTEMPTS times, when it fails any of: verify-run-record, the cycle
-# join (tier 2), a host maintenance event (tier 2), or another container competing for the
-# target's CPUs during a step. The failed attempt is kept on disk and listed in the session log;
+# join (tier 2), a host maintenance event (tier 2), a page-cache drop that left the target slice
+# full (tier 2), or another container competing for the target's CPUs during a step. The failed attempt is kept on disk and listed in the session log;
 # scripts/report.mjs uses the passing attempts and says how many were set aside.
 #
 #   TIER=1: SESSION_TRIALS=3 SPLIT_TRIALS=0 scripts/session.sh                      (dev only)
