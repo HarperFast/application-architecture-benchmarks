@@ -33,7 +33,7 @@ node scripts/report.mjs results/raw/session-<stamp>.log > results/session-<stamp
 
 `scripts/run.sh bench <target>` runs one trial: stop every target, restore the snapshot, wait until no other container on the machine is busy (tier 1; on tier 2 other containers are recorded), drop the page cache (the restore filled it; `PRE_START_HOOK`, as in the reference's orchestrator), cold-start the target (every process at once, timed by the reference's outside probe `containers/wait-ready.mjs` to the first 200 from the product endpoint), then the harness's fixed warm-up and load ladder from a generator container outside the target's budget, with the target's containers passed as `--target-cgroups` so the harness accounts their CPU itself. Afterwards: post-run statistics, the reference's `verify-run-record.mjs` (`--dev` on `dev`), for `fpr` the coherence audit, and on tier 2 ecommerce-store's cycle join (`bench/cycles.mjs`, into the run record) and the host conditions. `RATES`, `DURATION`, `BUDGET`, `MEMORY_SPLIT`, the memory split and `BENCH_ARGS` configure it; `QUOTE_SHARE`, `WRITE_RATE` and an empty `PRE_START_HOOK` are for diagnostics. The warm-up is the harness's own, fixed per scale and identical for every target.
 
-`scripts/session.sh` runs the `TARGETS` (default `harper fpr`) round by round in one session, reversing the order every other round (the methodology's "measure every target in one session"), with the same ladder and write stream for each, then, on tier 1, any `split` sensitivity trials. A trial that fails verification or the cycle join, saw a host maintenance event, or had another container busy during a step is set aside, kept on disk, re-run, and left out of the report, which lists it.
+`scripts/session.sh` runs the `TARGETS` (default `harper fpr`) round by round in one session, reversing the order every other round (the methodology's "measure every target in one session"), with the same ladder and write stream for each, then, on tier 1, any `split` sensitivity trials. A trial that fails verification or the cycle join, saw a host maintenance event, had another container busy during a step, or (tier 2) whose page-cache drop left the target slice full is set aside, kept on disk, re-run, and left out of the report, which lists it.
 
 ## Scripts
 
@@ -45,12 +45,13 @@ node scripts/report.mjs results/raw/session-<stamp>.log > results/session-<stamp
 | `bench-wrapper.mjs` | Runs the unmodified `bench/run.mjs` inside the generator container and adds what it does not measure: the generator container's own CPU, every other container's and the host services' CPU per step (contention; on tier 2, anything else in the target slice), machine-wide CPU from `/proc/stat` (CPU no cgroup was charged for), the shared budget slice, and for `fpr` its cache and buffer counters from `/__stats`; joined to the harness's step epochs |
 | `busy.mjs` | Instantaneous CPU of other containers before a trial (`podman stats` reports lifetime averages) |
 | `host-load.sh` | macOS host CPU outside the VM during a trial (the VM's vCPUs share the laptop's cores with everything else) |
-| `diff-reference.mjs` | Differential correctness: all 2,000 quotes and all 2,000 products x 5 tiers x 4 regions, both targets, freshly restored |
+| `diff-reference.mjs` | Differential correctness: every quote and every product x 5 tiers x 4 regions (on `dev`, 2,000 of each), both targets, freshly restored; reads gzipped datasets and takes every Nth cart and product with `--cart-stride` and `--product-stride` (`DIFF_ARGS`), for `bench` |
+| `page-cache-drop.mjs` | Tier 2: whether the page-cache drop before the cold start emptied the target slice, from `sample.sh`'s memory samples; a slice left full sets the trial aside |
 | `audit-coherence.mjs` | After a run: cached `fpr` responses vs the same responses computed from Postgres alone, for the products the run wrote (rebuilt from its run record), a stride of the rest and the hottest carts |
 | `server-timing.mjs` | Diagnostic (`run.sh timing <target>`): a target's own `Server-Timing` phases, one request at a time, on its hottest keys |
 | `promotion-probe.sh` | Diagnostic: the quote's promotion candidate lookup on both targets, the reference's indexed search timed by condition and `fpr`'s `EXPLAIN ANALYZE` |
 | `conformance-report.mjs` | Playwright JSON to a per-requirement conformance report |
-| `report.mjs` | A session's trials to median [min-max] tables and a compact JSON |
+| `report.mjs` | A session's trials to median [min-max] tables and a compact JSON, then each configuration against the reference: efficiency at the matched rate and throughput at the top step, each also with the writes counted |
 
 ## Outputs
 

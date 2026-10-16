@@ -75,7 +75,7 @@ Rounds alternate the order (`harper fpr`, then `fpr harper`, ...). For each tria
 1. Stops every target, so nothing else is resident in `bench-target.slice`.
 2. Restores the target's snapshot into its volume, from a helper container in the target slice: delete, then untar.
 3. Starts `sample.sh` as its own system unit (`arch-bench-sampler-<stamp>`, on the housekeeping CPUs), writing to `results/raw/samples-<target>-<stamp>/`.
-4. Drops the page cache (`sync; echo 3 | sudo tee /proc/sys/vm/drop_caches`) and starts every process of the target at once; the reference's outside probe times the first successful product response.
+4. Drops the page cache (`sync; echo 3 | sudo tee /proc/sys/vm/drop_caches`) and starts every process of the target at once; the reference's outside probe times the first successful product response. After the trial, `scripts/page-cache-drop.mjs` reads the target slice's memory around the drop from `sample.sh`'s samples, and a slice left full sets the trial aside.
 5. Runs the harness from the generator container, unmodified: the fixed warm-up, then the ladder, accounting the target's CPU, memory, page cache and disk reads per container. For `fpr`, it also polls `/__stats` every 2 s for the cache and buffer counters per step.
 6. Joins the samples' cycles into the run record with ecommerce-store's `bench/cycles.mjs --write` (the join its own orchestrator runs with `SAMPLES_DIR`), stops the sampler, runs ecommerce-store's `verify-run-record.mjs` (which on tier 2 also fails a step without cycles, a target outside the slice or without its own memory limit, and on `bench` steps under 60 s, non-Poisson arrivals or base images not pinned by digest), checks `maintenance.log` for a migration or termination notice, runs `conditions.sh` into `results/raw/hostconditions-<target>-<stamp>/`, and for `fpr` the coherence audit. For the reference it also records, from inside the running target, the worker heap and RocksDB block-cache sizes Harper resolved from its 2 GiB container limit, with the inputs and the source lines of the rules it read (`results/raw/harper-memory-<target>-<stamp>.json`); the report prints them per trial.
 7. Stops the target.
@@ -115,6 +115,8 @@ node scripts/report.mjs results/raw/session-<stamp>.log > results/session-<stamp
 
 Per target and step: median and range across accepted trials of throughput, latency, CPU per request, memory, disk reads; for `fpr`, entity, aggregate and Redis keyspace hit rates, evictions, Postgres buffer hit rate and blocks read; on tier 2, gigacycles, effective GHz, IPC and ops per gigacycle, and the clock's two drift checks (`environments/gcp/README.md`, "The clock on GCP"): a step more than 2% from the median of the same step across its target's trials, or, at full budget, from the session median of every such step, is marked and its trial listed for a re-run (set `DRIFT` to the probe's threshold if it is larger).
 
+Then, between targets: each configuration against the reference at every step, as ratios of medians with the range over every pairing of one trial of each, for throughput, CPU per request and ops per gigacycle, each also with the writes counted as operations, and two headline lines: efficiency at the matched rate (the highest offered rate both served in every trial) and throughput at the top step. Each trial's line also gives the target slice's memory before and after its page-cache drop.
+
 ## 7. Collect and tear down
 
 Optional diagnostics first, on the same host, not measurements: `scripts/run.sh timing <target>` (each target's own `Server-Timing` phases, one request at a time) and `scripts/promotion-probe.sh` (the quote's promotion lookup on both targets).
@@ -131,9 +133,9 @@ Each `fpr` container has its own memory limit, and every process is sized from t
 
 | Container | Limit | Sizing |
 |-|-|-|
-| app | 512 MiB | 2 workers; Node heap cap 160 MiB per process (primary and each worker) |
+| app | 512 MiB | 2 workers; Node heap cap 160 MiB and semi-space 8 MiB per process (primary and each worker) |
 | postgres | 1,280 MiB | `shared_buffers` 320 MB, `effective_cache_size` 960 MB, `work_mem` 4 MB, `maintenance_work_mem` 64 MB (256 MB while loading) |
-| redis | 256 MiB | `maxmemory` 153 MB, `allkeys-lru` |
+| redis | 256 MiB | `maxmemory` 153 MB, `volatile-lru` (every cached value has a TTL; the invalidation generations do not) |
 
 `MEMORY_SPLIT=slice` removes the per-container memory limits (each container may use the slice's 2 GiB) while keeping the same process sizing; it is a sensitivity, not the default.
 
