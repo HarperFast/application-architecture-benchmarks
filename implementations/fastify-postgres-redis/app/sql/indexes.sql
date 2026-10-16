@@ -17,9 +17,12 @@ ALTER TABLE inventory ADD PRIMARY KEY (sku, location_id) INCLUDE (on_hand);
 -- Product aggregate: a product's variants.
 CREATE INDEX variant_product_id_idx ON variant (product_id);
 
--- Promotion candidates: array overlap on the sentinel-carrying eligibility keys.
-CREATE INDEX promotion_tier_keys_idx     ON promotion USING gin (tier_keys);
-CREATE INDEX promotion_category_keys_idx ON promotion USING gin (category_keys);
+-- Promotion candidates (SPEC 0.3.0): array overlap on the sentinel-carrying eligibility keys for
+-- the promotions open to every SKU, and on `skus` for the rest. The first two are partial, so a
+-- SKU-scoped promotion never enters the tier/category scan; it is a candidate only through its SKUs.
+CREATE INDEX promotion_tier_keys_idx     ON promotion USING gin (tier_keys)     WHERE skus = '{}'::text[];
+CREATE INDEX promotion_category_keys_idx ON promotion USING gin (category_keys) WHERE skus = '{}'::text[];
+CREATE INDEX promotion_skus_idx          ON promotion USING gin (skus);
 
 -- Referential integrity. Never checked by the hot path (no write changes a referencing column).
 ALTER TABLE variant   ADD FOREIGN KEY (product_id)  REFERENCES product (id);

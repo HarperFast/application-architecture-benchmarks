@@ -14,6 +14,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 CUSTOMER_TIER="${1:-gold}"; shift || true
 if [ $# -gt 0 ]; then CATS=("$@"); else CATS=(apparel-shirts electronics-audio home-kitchen); fi
 REPS="${REPS:-20}"
+# fpr's query (SPEC 0.3.0) also probes the cart's SKUs: PROBE_SKUS="sku-a sku-b ..." (default: none).
 set -a; . ./.env; set +a
 
 median_ms() { # median_ms <url>: median of REPS request times in ms, and the row count
@@ -47,7 +48,7 @@ CLI="$(command -v docker >/dev/null && docker version >/dev/null 2>&1 && echo do
 arr() { local IFS=,; echo "{$*}"; }
 echo "== fpr: EXPLAIN (ANALYZE, BUFFERS), second execution"
 for _ in 1 2; do
-	out="$("$CLI" exec aab-ecommerce-rough-postgres-1 psql -U store -d store -At -c "EXPLAIN (ANALYZE, BUFFERS) SELECT id, kind, tiers, skus, category_ids, threshold_minor, amount_minor, amount_basis_points FROM promotion WHERE tier_keys && '$(arr "$CUSTOMER_TIER" '*')'::text[] AND category_keys && '$(arr "${CATS[@]}" '*')'::text[]")"
+	out="$("$CLI" exec aab-ecommerce-rough-postgres-1 psql -U store -d store -At -c "EXPLAIN (ANALYZE, BUFFERS) SELECT id, kind, tiers, skus, category_ids, threshold_minor, amount_minor, amount_basis_points FROM promotion WHERE (skus = '{}'::text[] AND tier_keys && '$(arr "$CUSTOMER_TIER" '*')'::text[] AND category_keys && '$(arr "${CATS[@]}" '*')'::text[]) OR skus && '$(arr ${PROBE_SKUS:-none})'::text[]")"
 done
 echo "$out" | sed 's/^/  /'
 scripts/run.sh stop >/dev/null 2>&1

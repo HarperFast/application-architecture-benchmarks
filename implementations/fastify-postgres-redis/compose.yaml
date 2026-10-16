@@ -73,6 +73,10 @@ services:
       - work_mem=${PG_WORK_MEM:-4MB}
       - -c
       - maintenance_work_mem=${PG_MAINTENANCE_WORK_MEM:-64MB}
+      # On by default (SPEC WRITE-005). The comparison's fpr-async target sets it off, to match a
+      # reference that acknowledges writes before syncing them (postgres/postgresql.conf).
+      - -c
+      - synchronous_commit=${PG_SYNCHRONOUS_COMMIT:-on}
     # A clean shutdown checkpoints; at bench scale that can take longer than compose's default
     # 10 s, and a snapshot of an unclean shutdown would replay WAL on every restore.
     stop_grace_period: 120s

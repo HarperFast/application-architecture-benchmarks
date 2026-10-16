@@ -51,8 +51,8 @@ const all = files.map((file) => {
 	];
 	const budget = s.conditions.budget;
 	const memory = budget?.memorySplit === 'slice' ? ', memory: slice only' : '';
-	const parts = [...(s.target === 'fpr' ? [`${budget?.mode} budget${memory}`] : []), ...(mix ? [mix.slice(2)] : []), ...diagnostics];
-	const name = { fpr: 'fastify-postgres-redis', harper: 'harper reference', 'harper-unbatched': `harper reference, unbatched build (${s.conditions.target?.build?.commit?.slice(0, 7) ?? '?'})` }[s.target] ?? s.target;
+	const parts = [...(s.target === 'fpr' || s.target === 'fpr-async' ? [`${budget?.mode} budget${memory}`] : []), ...(mix ? [mix.slice(2)] : []), ...diagnostics];
+	const name = { fpr: 'fastify-postgres-redis', 'fpr-async': 'fastify-postgres-redis, synchronous_commit off', harper: 'harper reference', 'harper-unbatched': `harper reference, unbatched build (${s.conditions.target?.build?.commit?.slice(0, 7) ?? '?'})` }[s.target] ?? s.target;
 	const config = `${name}${parts.length ? ` (${parts.join(', ')})` : ''}`;
 	// Tier 2: per-step cycles, which ecommerce-store's bench/cycles.mjs joined into the run record
 	// after the wrapper wrote this summary.
