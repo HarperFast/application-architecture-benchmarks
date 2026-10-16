@@ -1,4 +1,4 @@
 coherence: 4 products, 10 variants, 48 readers, 10s
-4574 writes, 74357 reads (0 errors), 160 view prices checked after 1000ms
+4285 writes, 64188 reads (0 errors), 160 view prices checked after 1000ms
 OK — every view reflects the last write within FRESH_MS.
-ecommerce-store f47978bfc956f859aa2a0bc417a77ea50e12b25e
+ecommerce-store 7e7d48b8d5e413ee59fccc976d667a83c5415941
