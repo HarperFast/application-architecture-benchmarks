@@ -164,7 +164,7 @@ for (const config of configs) {
 	};
 
 	out.push(`### ${config}`, '');
-	out.push(`${group.length} trial(s), ${group.filter((t) => t.contended).length} with at least one contended step (those steps excluded; n = clean observations per row). Cold start to first 200: ${fmt(group.map((t) => t.summary.conditions.lifecycle?.coldStartFirst200Ms), 0)} ms. Contention at start: ${group.map((t) => t.summary.conditions.contentionAtStart?.busyOtherContainers || 'none').join(', ')}. Host (macOS) cores busy outside the VM, median per trial: ${group.map((t) => t.host?.nonVmBusyCoresMedian ?? '-').join(', ')}.`, '');
+	out.push(`${group.length} trial(s), ${group.filter((t) => t.contended).length} with at least one contended step (those steps excluded; n = clean observations per row). Cold start to first 200: ${fmt(group.map((t) => t.summary.conditions.lifecycle?.coldStartFirst200Ms), 0)} ms. Contention at start: ${group.map((t) => t.summary.conditions.contentionAtStart?.busyOtherContainers || 'none').join(', ')}.${group.some((t) => t.host) ? ` Host (macOS) cores busy outside the VM, median per trial: ${group.map((t) => t.host?.nonVmBusyCoresMedian ?? '-').join(', ')}.` : ''}`, '');
 	out.push('Per trial:', '');
 	for (const t of group) {
 		const r = t.harperMemory?.resolved;
