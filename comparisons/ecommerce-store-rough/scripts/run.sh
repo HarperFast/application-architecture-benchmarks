@@ -12,6 +12,7 @@
 #   scripts/run.sh audit                  fpr only: cached vs source-of-truth responses, after a run
 #   scripts/run.sh coherence <target>     the reference's verify-coherence.mjs (readers racing writers)
 #   scripts/run.sh timing <target>        diagnostic: the target's Server-Timing phases, one request at a time
+#   scripts/run.sh start <target>         restore and cold-start one target and leave it running (diagnostics)
 #   scripts/run.sh stop                   stop every container in this project
 #
 # Targets: `fpr` (Fastify + Postgres + Redis), `harper` (the reference, built from the
@@ -674,6 +675,7 @@ case "$cmd" in
 	audit) setup; audit ;;
 	coherence) setup; coherence "${1:?target}" ;;
 	timing) setup; timing "${1:?target}" ;;
+	start) setup; for t in $(all_targets); do stop_target "$t"; done; restore "${1:?target}"; cold_start "$1" ;;
 	stop) setup; for t in $(all_targets); do stop_target "$t"; done ;;
 	*) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 1 ;;
 esac
