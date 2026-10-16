@@ -15,6 +15,13 @@
           "file": "summary-harper-2026-10-15T23-10-56-379Z.json",
           "stamp": "20261015T231013Z",
           "coldStartFirst200Ms": 3938,
+          "pageCacheDrop": {
+            "verdict": "dropped",
+            "cgroup": "bench.slice/bench-target.slice",
+            "beforeMiB": 2046.9,
+            "lowestMiB": 0.2,
+            "lowestMsAfterRecordedDrop": 448
+          },
           "memoryBasis": "per cgroup: harper against its own 2048 MiB limit",
           "harperMemory": {
             "inputs": {
@@ -401,6 +408,13 @@
           "file": "summary-harper-2026-10-16T00-36-19-331Z.json",
           "stamp": "20261016T003534Z",
           "coldStartFirst200Ms": 4157,
+          "pageCacheDrop": {
+            "verdict": "dropped",
+            "cgroup": "bench.slice/bench-target.slice",
+            "beforeMiB": 2046.9,
+            "lowestMiB": 0.1,
+            "lowestMsAfterRecordedDrop": 430
+          },
           "memoryBasis": "per cgroup: harper against its own 2048 MiB limit",
           "harperMemory": {
             "inputs": {
@@ -787,6 +801,13 @@
           "file": "summary-harper-2026-10-16T01-04-46-321Z.json",
           "stamp": "20261016T010401Z",
           "coldStartFirst200Ms": 4136,
+          "pageCacheDrop": {
+            "verdict": "dropped",
+            "cgroup": "bench.slice/bench-target.slice",
+            "beforeMiB": 2047.1,
+            "lowestMiB": 0.2,
+            "lowestMsAfterRecordedDrop": 536
+          },
           "memoryBasis": "per cgroup: harper against its own 2048 MiB limit",
           "harperMemory": {
             "inputs": {
@@ -1198,6 +1219,13 @@
           "file": "summary-harper-unbatched-2026-10-15T23-39-20-442Z.json",
           "stamp": "20261015T233839Z",
           "coldStartFirst200Ms": 4060,
+          "pageCacheDrop": {
+            "verdict": "dropped",
+            "cgroup": "bench.slice/bench-target.slice",
+            "beforeMiB": 2047.3,
+            "lowestMiB": 0.2,
+            "lowestMsAfterRecordedDrop": 770
+          },
           "memoryBasis": "per cgroup: harper against its own 2048 MiB limit",
           "harperMemory": {
             "inputs": {
@@ -1584,6 +1612,13 @@
           "file": "summary-harper-unbatched-2026-10-16T00-07-50-919Z.json",
           "stamp": "20261016T000704Z",
           "coldStartFirst200Ms": 4236,
+          "pageCacheDrop": {
+            "verdict": "dropped",
+            "cgroup": "bench.slice/bench-target.slice",
+            "beforeMiB": 2047.2,
+            "lowestMiB": 0.2,
+            "lowestMsAfterRecordedDrop": 907
+          },
           "memoryBasis": "per cgroup: harper against its own 2048 MiB limit",
           "harperMemory": {
             "inputs": {
@@ -1970,6 +2005,13 @@
           "file": "summary-harper-unbatched-2026-10-16T01-33-12-042Z.json",
           "stamp": "20261016T013227Z",
           "coldStartFirst200Ms": 4079,
+          "pageCacheDrop": {
+            "verdict": "dropped",
+            "cgroup": "bench.slice/bench-target.slice",
+            "beforeMiB": 2046.9,
+            "lowestMiB": 0.2,
+            "lowestMsAfterRecordedDrop": 1299
+          },
           "memoryBasis": "per cgroup: harper against its own 2048 MiB limit",
           "harperMemory": {
             "inputs": {
@@ -2373,6 +2415,259 @@
           "cpuMax": "max 100000",
           "memoryMax": "2147483648"
         }
+      }
+    }
+  },
+  "between": {
+    "baseline": "harper reference",
+    "configs": {
+      "harper reference, unbatched build (e6d8c19)": {
+        "highestServed": {
+          "harper reference, unbatched build (e6d8c19)": 100,
+          "harper reference": 100
+        },
+        "matchedRate": 100,
+        "topRate": 1600,
+        "steps": [
+          {
+            "offered": 25,
+            "served": true,
+            "throughput": {
+              "median": 1,
+              "min": 1,
+              "max": 1
+            },
+            "throughputWithWrites": {
+              "median": 1.00000076836262,
+              "min": 0.9999932926392922,
+              "max": 1.0000089527728522
+            },
+            "cpuPerOp": {
+              "median": 0.9502367378490675,
+              "min": 0.9117787315212209,
+              "max": 1.0490778036887853
+            },
+            "cpuPerOpWithWrites": {
+              "median": 0.9502689470802332,
+              "min": 0.9117787315212207,
+              "max": 1.0490778036887851
+            },
+            "opsPerGigacycle": {
+              "median": 0.9496405371384982,
+              "min": 0.9119571606391155,
+              "max": 1.0469273271369264
+            },
+            "opsPerGigacycleWithWrites": {
+              "median": 0.9496405371384979,
+              "min": 0.9119571606391155,
+              "max": 1.0469273271369264
+            }
+          },
+          {
+            "offered": 50,
+            "served": true,
+            "throughput": {
+              "median": 1,
+              "min": 1,
+              "max": 1
+            },
+            "throughputWithWrites": {
+              "median": 1.0000016328611034,
+              "min": 0.9999965140593107,
+              "max": 1.0000061691146882
+            },
+            "cpuPerOp": {
+              "median": 0.9540672157758673,
+              "min": 0.9147035904813283,
+              "max": 0.9897311426437639
+            },
+            "cpuPerOpWithWrites": {
+              "median": 0.9540662952422942,
+              "min": 0.9146853146853148,
+              "max": 0.9897724208036843
+            },
+            "opsPerGigacycle": {
+              "median": 0.953150051583727,
+              "min": 0.9165350791994108,
+              "max": 0.9898237600506873
+            },
+            "opsPerGigacycleWithWrites": {
+              "median": 0.953150051583727,
+              "min": 0.9165350791994108,
+              "max": 0.9898237600506872
+            }
+          },
+          {
+            "offered": 100,
+            "served": true,
+            "throughput": {
+              "median": 1,
+              "min": 1,
+              "max": 1
+            },
+            "throughputWithWrites": {
+              "median": 0.9999997866269285,
+              "min": 0.999997678301493,
+              "max": 1.0000027807617489
+            },
+            "cpuPerOp": {
+              "median": 0.9779182102128278,
+              "min": 0.8095684803001876,
+              "max": 1.0564627946387306
+            },
+            "cpuPerOpWithWrites": {
+              "median": 0.9779297820823244,
+              "min": 0.8095704651817263,
+              "max": 1.056529163296486
+            },
+            "opsPerGigacycle": {
+              "median": 0.9776680385231666,
+              "min": 0.8109308983997485,
+              "max": 1.0588745658320582
+            },
+            "opsPerGigacycleWithWrites": {
+              "median": 0.9776680385231667,
+              "min": 0.8109308983997485,
+              "max": 1.0588745658320582
+            }
+          },
+          {
+            "offered": 200,
+            "served": false,
+            "throughput": {
+              "median": 1.0051508462104488,
+              "min": 0.8668965517241379,
+              "max": 1.1279761904761905
+            },
+            "throughputWithWrites": {
+              "median": 1.0044916713319505,
+              "min": 0.8830299215778329,
+              "max": 1.1113986555614763
+            },
+            "cpuPerOp": {
+              "median": 1.0031692372702303,
+              "min": 0.8792765735178898,
+              "max": 1.1204557786218123
+            },
+            "cpuPerOpWithWrites": {
+              "median": 1.002625758669023,
+              "min": 0.8927579910363362,
+              "max": 1.1065924613067648
+            },
+            "opsPerGigacycle": {
+              "median": 1.0033614552179777,
+              "min": 0.8818844000615811,
+              "max": 1.1168797360698255
+            },
+            "opsPerGigacycleWithWrites": {
+              "median": 1.0028651921075633,
+              "min": 0.8954086202794578,
+              "max": 1.1030043562495704
+            }
+          },
+          {
+            "offered": 400,
+            "served": false,
+            "throughput": {
+              "median": 0.8924802110817943,
+              "min": 0.863157894736842,
+              "max": 1.149518874907476
+            },
+            "throughputWithWrites": {
+              "median": 0.9050103293183331,
+              "min": 0.8790707037783323,
+              "max": 1.1302376290962792
+            },
+            "cpuPerOp": {
+              "median": 0.9006944444444445,
+              "min": 0.8690693122764392,
+              "max": 1.1424942446614272
+            },
+            "cpuPerOpWithWrites": {
+              "median": 0.9114633872206508,
+              "min": 0.8826262923071155,
+              "max": 1.1260527632119897
+            },
+            "opsPerGigacycle": {
+              "median": 0.9006681452015323,
+              "min": 0.8702165280228027,
+              "max": 1.1416350955494488
+            },
+            "opsPerGigacycleWithWrites": {
+              "median": 0.9114353469667975,
+              "min": 0.8838347337485772,
+              "max": 1.1252199750068137
+            }
+          },
+          {
+            "offered": 800,
+            "served": false,
+            "throughput": {
+              "median": 0.8813672922252012,
+              "min": 0.8586525759577278,
+              "max": 1.124103299856528
+            },
+            "throughputWithWrites": {
+              "median": 0.8953893704373984,
+              "min": 0.8751486862449597,
+              "max": 1.108533773777757
+            },
+            "cpuPerOp": {
+              "median": 0.8884958160419076,
+              "min": 0.8685499563846206,
+              "max": 1.1251406526281948
+            },
+            "cpuPerOpWithWrites": {
+              "median": 0.9003628047953918,
+              "min": 0.8830664502641178,
+              "max": 1.1116151469254705
+            },
+            "opsPerGigacycle": {
+              "median": 0.8911914921409043,
+              "min": 0.8720658450555459,
+              "max": 1.124540435755479
+            },
+            "opsPerGigacycleWithWrites": {
+              "median": 0.903086845047431,
+              "min": 0.8866507599559795,
+              "max": 1.1109911471514362
+            }
+          },
+          {
+            "offered": 1600,
+            "served": false,
+            "throughput": {
+              "median": 0.8954703832752613,
+              "min": 0.8506666666666667,
+              "max": 1.1186196980589505
+            },
+            "throughputWithWrites": {
+              "median": 0.9081575429174621,
+              "min": 0.8680968432055166,
+              "max": 1.1038219734079402
+            },
+            "cpuPerOp": {
+              "median": 0.9083734617442483,
+              "min": 0.8605876927131374,
+              "max": 1.1133445002791735
+            },
+            "cpuPerOpWithWrites": {
+              "median": 0.91931960781414,
+              "min": 0.875569190935847,
+              "max": 1.1006781706116096
+            },
+            "opsPerGigacycle": {
+              "median": 0.9109409598677495,
+              "min": 0.8613214270781829,
+              "max": 1.1139205317610106
+            },
+            "opsPerGigacycleWithWrites": {
+              "median": 0.9219082023686377,
+              "min": 0.876316280153823,
+              "max": 1.1012573179578415
+            }
+          }
+        ]
       }
     }
   }
