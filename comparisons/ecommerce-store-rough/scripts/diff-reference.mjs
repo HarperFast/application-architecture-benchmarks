@@ -11,10 +11,19 @@
  * the cross-implementation contract; QUOTE-008 byte identity is per implementation). Array order
  * is compared as is.
  *
- *   node diff-reference.mjs --a http://localhost:39936 --b http://localhost:39926 --dataset <dev dir> --out diff.json
+ *   node diff-reference.mjs --a http://localhost:39936 --b http://localhost:39926 --dataset <dir> --out diff.json
+ *     [--cart-stride N] [--product-stride N]
+ *
+ * The cart and product ids are streamed from `<table>.ndjson`, or `<table>.ndjson.gz` when that is
+ * what the dataset holds (bench as committed). On bench, every quote and every view is 300,000 +
+ * 40,000,000 requests: the strides take every Nth cart and every Nth product (each product in every
+ * tier and region), in file order, so a sample is reproducible and recorded with the result. The
+ * default, 1, compares everything, as on dev. Requests are generated as they are sent, never held.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { createReadStream, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { createInterface } from 'node:readline';
+import { createGunzip } from 'node:zlib';
 
 const args = process.argv.slice(2);
 const argOf = (name, fallback) => {
@@ -26,11 +35,26 @@ const B = argOf('b');
 const DATASET = argOf('dataset');
 const OUT = argOf('out');
 const CONCURRENCY = Number(argOf('concurrency', '16'));
+const CART_STRIDE = Number(argOf('cart-stride', '1'));
+const PRODUCT_STRIDE = Number(argOf('product-stride', '1'));
+for (const [name, stride] of [['cart-stride', CART_STRIDE], ['product-stride', PRODUCT_STRIDE]]) {
+	if (!Number.isInteger(stride) || stride < 1) throw new Error(`--${name} must be a positive integer`);
+}
 const TIERS = ['standard', 'silver', 'gold', 'platinum', 'unlisted-tier'];
 const REGIONS = ['us-east', 'us-west', 'eu-central', 'apac'];
 
-const ids = (table, field) =>
-	readFileSync(join(DATASET, `${table}.ndjson`), 'utf8').trim().split('\n').map((line) => JSON.parse(line)[field]);
+/** Every `stride`-th row's `field`, in file order; only the sampled rows are parsed. */
+async function ids(table, field, stride) {
+	const plain = join(DATASET, `${table}.ndjson`);
+	const input = existsSync(plain) ? createReadStream(plain) : createReadStream(`${plain}.gz`).pipe(createGunzip());
+	const out = [];
+	let row = 0;
+	for await (const line of createInterface({ input, crlfDelay: Infinity })) {
+		if (!line) continue;
+		if (row++ % stride === 0) out.push(JSON.parse(line)[field]);
+	}
+	return out;
+}
 
 const canonical = (value) => {
 	if (Array.isArray(value)) return value.map(canonical);
@@ -73,21 +97,33 @@ function firstDifference(a, b, path = '$') {
 	return a === b ? null : `${path}: ${JSON.stringify(a)} != ${JSON.stringify(b)}`;
 }
 
-const requests = [];
-for (const id of ids('cart', 'id')) requests.push({ kind: 'quote', method: 'POST', path: `/cart/${id}/quote` });
-for (const id of ids('product', 'id')) {
-	for (const tier of TIERS) for (const region of REGIONS) requests.push({ kind: 'product', method: 'GET', path: `/product/${id}?tier=${tier}&region=${region}` });
+const carts = await ids('cart', 'id', CART_STRIDE);
+const products = await ids('product', 'id', PRODUCT_STRIDE);
+const EDGE_CASES = [
+	{ kind: 'quote', method: 'POST', path: '/cart/no-such-cart/quote' },
+	{ kind: 'product', method: 'GET', path: '/product/no-such-product?tier=standard&region=us-east' },
+	{ kind: 'product', method: 'GET', path: '/product/product-000001?tier=standard&region=no-such-region' },
+	{ kind: 'product', method: 'GET', path: '/product/product-000001' },
+];
+function* generateRequests() {
+	for (const id of carts) yield { kind: 'quote', method: 'POST', path: `/cart/${id}/quote` };
+	for (const id of products) {
+		for (const tier of TIERS) for (const region of REGIONS) yield { kind: 'product', method: 'GET', path: `/product/${id}?tier=${tier}&region=${region}` };
+	}
+	yield* EDGE_CASES;
 }
-requests.push({ kind: 'quote', method: 'POST', path: '/cart/no-such-cart/quote' });
-requests.push({ kind: 'product', method: 'GET', path: '/product/no-such-product?tier=standard&region=us-east' });
-requests.push({ kind: 'product', method: 'GET', path: '/product/product-000001?tier=standard&region=no-such-region' });
-requests.push({ kind: 'product', method: 'GET', path: '/product/product-000001' });
+const total = carts.length + products.length * TIERS.length * REGIONS.length + EDGE_CASES.length;
 
-const result = { a: A, b: B, compared: 0, equal: 0, statusMismatch: 0, bodyMismatch: 0, byKind: {}, examples: [] };
-let next = 0;
+const result = {
+	a: A, b: B,
+	sample: { cartStride: CART_STRIDE, productStride: PRODUCT_STRIDE, carts: carts.length, products: products.length, tiers: TIERS, regions: REGIONS },
+	compared: 0, equal: 0, statusMismatch: 0, bodyMismatch: 0, byKind: {}, examples: [],
+};
+// One generator shared by every worker: next() is synchronous, so each request is taken once.
+const requests = generateRequests();
 async function worker() {
-	while (next < requests.length) {
-		const req = requests[next++];
+	for (let next = requests.next(); !next.done; next = requests.next()) {
+		const req = next.value;
 		const [ra, rb] = await Promise.all([call(A, req), call(B, req)]);
 		const kind = (result.byKind[req.kind] ??= { compared: 0, equal: 0, mismatched: 0 });
 		result.compared++;
@@ -107,7 +143,7 @@ async function worker() {
 			result.equal++;
 			kind.equal++;
 		}
-		if (result.compared % 5000 === 0) process.stderr.write(`  ${result.compared}/${requests.length}\n`);
+		if (result.compared % 5000 === 0) process.stderr.write(`  ${result.compared}/${total}\n`);
 	}
 }
 await Promise.all(Array.from({ length: CONCURRENCY }, worker));

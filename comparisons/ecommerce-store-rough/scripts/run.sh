@@ -35,6 +35,7 @@
 #   HARNESS_DATASET_HOST      the expanded dataset the generator reads (default: dataset/dev, or
 #                             .work/dataset/bench prepared by ecommerce-store scripts/prepare-dataset.mjs)
 #   WAIT_FOR_IDLE      tier 1: seconds to wait for other projects' containers to go idle (900)
+#   DIFF_ARGS          extra diff-reference.mjs flags, e.g. --cart-stride 30 --product-stride 400 on bench
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -600,6 +601,11 @@ bench() {
 			if [ -n "$samples" ] && grep -qE ',(MIGRATE|TERMINATE)' "$samples/maintenance.log" 2>/dev/null; then
 				fault "host maintenance event"
 			fi
+			# The verifier checks that a page-cache drop was configured; the host samples show whether
+			# it emptied the target slice before the cold start (scripts/page-cache-drop.mjs).
+			if [ -n "$samples" ] && [ -n "$PRE_START_HOOK" ]; then
+				node "$HERE/scripts/page-cache-drop.mjs" "$samples" "$conditions" > "$RAW/drop-$target-$stamp.json" || fault "page cache not dropped"
+			fi
 		fi
 		# Tier 2: environments/gcp/conditions.sh after the trial: container state and image digests.
 		if [ -n "${CONDITIONS_SH:-}" ]; then
@@ -637,8 +643,9 @@ diff_reference() {
 	say "restoring both targets and starting them side by side (correctness only, not a measurement)"
 	restore fpr; restore harper
 	cold_start fpr; cold_start harper
+	# shellcheck disable=SC2086
 	node "$HERE/scripts/diff-reference.mjs" --a "http://localhost:$(port_of harper)" --b "http://localhost:$(port_of fpr)" \
-		--dataset "$HARNESS_DATASET_HOST" --out "$HERE/results/diff-reference-dataset-$DATASET_GENERATOR.json"
+		--dataset "$HARNESS_DATASET_HOST" --out "$HERE/results/diff-reference-dataset-$DATASET_GENERATOR.json" ${DIFF_ARGS:-}
 	stop_target harper
 }
 

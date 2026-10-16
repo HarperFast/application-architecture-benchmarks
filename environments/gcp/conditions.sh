@@ -34,6 +34,9 @@ x memory        sh -c 'free -m; swapon --show'
 x thp           sh -c 'grep . /sys/kernel/mm/transparent_hugepage/enabled /sys/kernel/mm/transparent_hugepage/defrag'
 x sysctl        sysctl -a
 x disks         sh -c 'lsblk -o NAME,SIZE,TYPE,MODEL,ROTA,SCHED,FSTYPE,MOUNTPOINT; findmnt /mnt/lssd; cat /proc/mdstat'
+# Readahead of every block device, the RAID 0 array included: in the first tier-2 sessions the
+# stack's disk reads were about 2.1 times Postgres's block reads (implementation review P4).
+x readahead     sh -c 'grep -H . /sys/block/*/queue/read_ahead_kb; blockdev --report'
 x docker        sh -c 'docker version; docker info; docker compose version'
 x perf          perf --version
 x node          node --version

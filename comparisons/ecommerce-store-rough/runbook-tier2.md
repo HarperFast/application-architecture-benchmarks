@@ -75,7 +75,7 @@ Rounds alternate the order (`harper fpr`, then `fpr harper`, ...). For each tria
 1. Stops every target, so nothing else is resident in `bench-target.slice`.
 2. Restores the target's snapshot into its volume, from a helper container in the target slice: delete, then untar.
 3. Starts `sample.sh` as its own system unit (`arch-bench-sampler-<stamp>`, on the housekeeping CPUs), writing to `results/raw/samples-<target>-<stamp>/`.
-4. Drops the page cache (`sync; echo 3 | sudo tee /proc/sys/vm/drop_caches`) and starts every process of the target at once; the reference's outside probe times the first successful product response.
+4. Drops the page cache (`sync; echo 3 | sudo tee /proc/sys/vm/drop_caches`) and starts every process of the target at once; the reference's outside probe times the first successful product response. After the trial, `scripts/page-cache-drop.mjs` reads the target slice's memory around the drop from `sample.sh`'s samples, and a slice left full sets the trial aside.
 5. Runs the harness from the generator container, unmodified: the fixed warm-up, then the ladder, accounting the target's CPU, memory, page cache and disk reads per container. For `fpr`, it also polls `/__stats` every 2 s for the cache and buffer counters per step.
 6. Joins the samples' cycles into the run record with ecommerce-store's `bench/cycles.mjs --write` (the join its own orchestrator runs with `SAMPLES_DIR`), stops the sampler, runs ecommerce-store's `verify-run-record.mjs` (which on tier 2 also fails a step without cycles, a target outside the slice or without its own memory limit, and on `bench` steps under 60 s, non-Poisson arrivals or base images not pinned by digest), checks `maintenance.log` for a migration or termination notice, runs `conditions.sh` into `results/raw/hostconditions-<target>-<stamp>/`, and for `fpr` the coherence audit. For the reference it also records, from inside the running target, the worker heap and RocksDB block-cache sizes Harper resolved from its 2 GiB container limit, with the inputs and the source lines of the rules it read (`results/raw/harper-memory-<target>-<stamp>.json`); the report prints them per trial.
 7. Stops the target.
@@ -114,6 +114,8 @@ node scripts/report.mjs results/raw/session-<stamp>.log > results/session-<stamp
 ```
 
 Per target and step: median and range across accepted trials of throughput, latency, CPU per request, memory, disk reads; for `fpr`, entity, aggregate and Redis keyspace hit rates, evictions, Postgres buffer hit rate and blocks read; on tier 2, gigacycles, effective GHz, IPC and ops per gigacycle, with any step whose clock left the session median by more than 2% marked (set `DRIFT` to the probe's threshold if it is larger).
+
+Then, between targets: each configuration against the reference at every step, as ratios of medians with the range over every pairing of one trial of each, for throughput, CPU per request and ops per gigacycle, each also with the writes counted as operations, and two headline lines: efficiency at the matched rate (the highest offered rate both served in every trial) and throughput at the top step. Each trial's line also gives the target slice's memory before and after its page-cache drop.
 
 ## 7. Collect and tear down
 
