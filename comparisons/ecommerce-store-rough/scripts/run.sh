@@ -221,6 +221,8 @@ configure_budget() {
 base_of() { case "$1" in harper-unbatched) echo harper ;; fpr-async) echo fpr ;; *) echo "$1" ;; esac; }
 # fpr and its variants: the same three containers, volume and snapshot.
 is_fpr() { [ "$(base_of "$1")" = fpr ]; }
+# Correctness results name their scale unless it is dev, so a bench gate never overwrites the committed dev results.
+scale_tag() { [ "$SCALE" = dev ] || echo "-$SCALE"; }
 # fpr's snapshot also names the schema, indexes and loader it was loaded with: a changed storage
 # parameter or index must not restore an older load (the reference's schema is the checkout's).
 FPR_APP="$REPO/implementations/fastify-postgres-redis/app"
@@ -636,7 +638,7 @@ bench() {
 conformance() {
 	local target="$1" stamp out
 	stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-	out="$HERE/results/conformance-$target-dataset-$DATASET_GENERATOR.json"
+	out="$HERE/results/conformance-$target$(scale_tag)-dataset-$DATASET_GENERATOR.json"
 	restore "$target"
 	cold_start "$target"
 	say "conformance suite against $target"
@@ -655,7 +657,7 @@ diff_reference() {
 	cold_start fpr; cold_start harper
 	# shellcheck disable=SC2086
 	node "$HERE/scripts/diff-reference.mjs" --a "http://localhost:$(port_of harper)" --b "http://localhost:$(port_of fpr)" \
-		--dataset "$HARNESS_DATASET_HOST" --out "$HERE/results/diff-reference-dataset-$DATASET_GENERATOR.json" ${DIFF_ARGS:-}
+		--dataset "$HARNESS_DATASET_HOST" --out "$HERE/results/diff-reference$(scale_tag)-dataset-$DATASET_GENERATOR.json" ${DIFF_ARGS:-}
 	stop_target harper
 }
 
@@ -663,7 +665,7 @@ diff_reference() {
 # every view must carry the last price written within FRESH_MS. Mutates prices: restores after.
 coherence() {
 	local target="$1"
-	local out="$HERE/results/coherence-$target-dataset-$DATASET_GENERATOR.txt"
+	local out="$HERE/results/coherence-$target$(scale_tag)-dataset-$DATASET_GENERATOR.txt"
 	restore "$target"
 	cold_start "$target"
 	say "verify-coherence against $target"
