@@ -140,6 +140,6 @@ Recorded as the methodology asks (advantages as well as costs):
 
 ## Known limitations
 
-- `bench` has run only in the comparison's exploratory tier-2 sessions ([findings-tier2.md](../../comparisons/ecommerce-store-rough/findings-tier2.md)), before the tuning in the [implementation review](../../comparisons/ecommerce-store-rough/implementation-review.md) (P1b, P2, P5 to P7, E6).
+- `bench` has run only in the comparison's exploratory tier-2 sessions ([findings-tier2.md](../../comparisons/ecommerce-store-rough/findings-tier2.md)). Sessions 1 and 2 ran before the tuning in the [implementation review](../../comparisons/ecommerce-store-rough/implementation-review.md) (P1b, P2, P5 to P7, E6), and session 3 ran with it and with SPEC 0.3.0's candidate query.
 - Promotions are read per quote from Postgres, as the reference reads them from its tables: the comparison decided that both sides read them from the source of truth (review P1a, H1c). A production deployment might hold active promotions in memory with a short expiry; neither implementation does.
 - `options` is `jsonb`, which does not preserve key order; the aggregate's `options` objects therefore list keys in a different order from the reference's. Cross-implementation key order is not part of the contract (QUOTE-008 is per implementation).

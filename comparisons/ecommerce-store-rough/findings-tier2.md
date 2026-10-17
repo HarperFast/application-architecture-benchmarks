@@ -1,28 +1,98 @@
 # Findings: ecommerce-store on tier 2, Harper reference vs Fastify + Postgres + Redis (step 0 for tier 2)
 
-**Status:** exploratory, step 0 for [tier 2](../../README.md#environment-tiers). The first `bench` sessions on the GCP Linux host of [`environments/gcp`](../../environments/gcp/README.md), 2026-10-15 to 16. **Nothing here is a result, and nothing here may be published or quoted as one.** It records where a first tier-2 measurement lands, how large the effect looks, what the clock and memory evidence show, which traps appeared, and what the published comparison needs next. Tier-1 findings are in [findings.md](findings.md).
+**Status:** exploratory, step 0 for [tier 2](../../README.md#environment-tiers). The first `bench` sessions on the GCP Linux host of [`environments/gcp`](../../environments/gcp/README.md), 2026-10-15 to 17. **Nothing here is a result, and nothing here may be published or quoted as one.** It records where a first tier-2 measurement lands, how large the effect looks, what the clock and memory evidence show, which traps appeared, and what the published comparison needs next. Session 3 re-ran the comparison after the reference's promotion lookup was fixed, on SPEC 0.3.0 and dataset 0.6.0, and is the current picture ([after the fixes](#after-the-fixes-session-3)); sessions 1 and 2 record where it started. Tier-1 findings are in [findings.md](findings.md).
 
-Every comparison below is between two whole applications on the same budget: the Harper reference application, and an application assembled from Fastify, Postgres and Redis. None of it describes Fastify, Postgres or Redis as projects. Where the assembled stack does better, the methodology says to publish it, investigate it, and first suspect the reference's own implementation; [Where the reference's time goes](#where-the-references-time-goes) starts that.
+Every comparison below is between two whole applications on the same budget: the Harper reference application, and an application assembled from Fastify, Postgres and Redis. None of it describes Fastify, Postgres or Redis as projects. Where the assembled stack does better, the methodology says to publish it, investigate it, and first suspect the reference's own implementation; [Where the reference's time goes](#where-the-references-time-goes) started that, and [its session-3 counterpart](#where-the-references-time-goes-now) continues it.
 
 ## Sessions
 
-| | Session 1 | Session 2 |
+| | Session 1 | Session 2 | Session 3 |
+|-|-|-|-|
+| Question | Harper reference vs Fastify + Postgres + Redis | The reference's quote-read batching: the checkout against `dd3a5f5^` | Session 1's question again, after the reference's promotion fixes, with durability matched |
+| Targets, rounds | `harper fpr`, 3 rounds alternating | `harper harper-unbatched`, 3 rounds alternating | `harper fpr-async fpr`, 3 rounds alternating |
+| Report | [session-20261015T222926Z.md](results/session-20261015T222926Z.md) | [session-20261015T231012Z.md](results/session-20261015T231012Z.md) | [session-20261016T205813Z.md](results/session-20261016T205813Z.md) |
+| Host | `c4-standard-16-lssd`, `us-east5-a` | `c4-standard-16-lssd`, `us-east4-a` | `c4-standard-16-lssd`, `us-east4-a` |
+| Trials accepted | 6 of 6, none set aside | 6 of 6, none set aside | 9 of 9, none set aside |
+| Clock probe | 3.899 / 3.897 GHz (target only / all busy), 0.1% spread | 3.897 / 3.897 GHz, 0.2% spread | 3.898 / 3.898 GHz, 0.0 to 0.1% spread |
+| application-architecture-benchmarks | `e4f5ed7` | `d340f68` (adds only the unbatched build fix) | `b05d5da` |
+
+Sessions 1 and 2 ran at the same time on separate VMs in different regions, so they share no host. Each compares only its own targets: the methodology's "measure every target in one session". Nothing here divides a session-1 figure by a session-2 figure. The reference's checkout build ran in both: 131 to 148 rps at saturation in session 1, 137 to 148 in session 2, a spread within each session as large as any difference between them ([trial-to-trial variation](#trial-to-trial-variation)).
+
+Common to sessions 1 and 2: ecommerce-store `main` at `f47978b` (Harper 5.3.2, dataset generator 0.5.0, `bench`: 2,000,000 products, 6,570,143 variants, 31,281,273 inventory rows, 5,000 promotions); Debian 13, kernel 6.12.111, Docker 29.9.1 with the systemd cgroup driver; `ALL_CORE_MAX`, architectural PMU, one thread per core; the target in `bench-target.slice` (CPUs 2-3, `MemoryMax=2G`, no swap), the generator in `bench-generator.slice` (CPUs 4-7) with a 4-CPU, 3 GiB container. Ladder 25, 50, 100, 200, 400, 800, 1,600 rps, 60 s steps, seeded Poisson arrivals, 50% quotes, 20 writes/s; the fixed `bench` warm-up of 120,000 requests at 100 rps before every ladder; every trial restored from the session's snapshot and cold-started on a dropped page cache. Base images are pinned by digest; image digests, commits and host conditions are in each trial's records.
+
+Session 3: ecommerce-store `main` at `8c43963` (Harper 5.3.2, SPEC 0.3.0, dataset generator 0.6.0, whose `bench` differs from 0.5.0 only in its 5,000 promotions; 40,656,446 rows in all), the same host software, slices, generator, arrival process, warm-up, write rate and restore, and a finer ladder: 50, 100, 150, 200, 300, 450, 600, 800, 1,200, 1,600, 2,400 rps. It ran a day after sessions 1 and 2 with different code and data on both sides, so nothing here divides a session-3 figure by a session-1 figure either.
+
+## After the fixes (session 3)
+
+What changed since session 1:
+
+- **The reference** finds promotion candidates with equality probes on one indexed key per (tier, category) pair, plus one `skus` probe per cart SKU, instead of two ANDed `in` conditions, and reads only the rows they return ([ecommerce-store #5](https://github.com/HarperFast/ecommerce-store/pull/5), [#8](https://github.com/HarperFast/ecommerce-store/pull/8)). The engine's `in` path is avoided, not fixed ([harper#3240](https://github.com/HarperFast/harper/issues/3240), [#3241](https://github.com/HarperFast/harper/issues/3241)).
+- **The workload.** SPEC 0.3.0 and dataset 0.6.0 ([ecommerce-store #7](https://github.com/HarperFast/ecommerce-store/pull/7)) replaced the broad promotions with 120 campaigns and 4,880 promotions restricted to one product's SKUs. A `bench` quote's candidate set is about 12 promotions, where in session 1 each side read 619 to 1,054 rows per quote, and quotes now reach every pricing phase instead of stopping at an exclusive promotion.
+- **The stack** has the implementation review's tuning ([#10](https://github.com/HarperFast/application-architecture-benchmarks/pull/10)) and reads SPEC 0.3.0's candidate set through a partial GIN index on each branch of the condition ([#12](https://github.com/HarperFast/application-architecture-benchmarks/pull/12)).
+- **Durability is matched.** Harper 5.3.2 acknowledges a RocksDB commit before syncing it ([harper#3243](https://github.com/HarperFast/harper/issues/3243)), and SPEC `WRITE-005` asks a comparison to match the guarantee, so `fpr-async` runs the stack with `synchronous_commit=off`. The durable `fpr` stayed in the session as a sensitivity. Each trial records its durability in its conditions.
+
+Three accepted trials per target, median [min-max] ([tables](results/session-20261016T205813Z.md)):
+
+| | Harper reference | Stack, `synchronous_commit` off | Stack, durable |
+|-|-|-|-|
+| Highest offered rate served without shedding in every trial | 800 rps | 2,400 rps, the top of the ladder | 2,400 rps |
+| Throughput at 2,400 offered | 1,113 [1,091-1,132] rps, saturated from 1,200 | 2,387 [2,386-2,387] rps, not saturated | 2,387 [2,386-2,387] rps |
+| Target cores at 2,400 offered | 1.96 | 1.89 | 1.88 |
+| p50 / p99 at 800 rps | 6.8 / 87.2 [80.1-87.8] ms | 2.5 / 8.2 [7.6-8.3] ms | 2.5 / 8.0 [7.7-8.4] ms |
+| p99 at 50 rps | 18.3 [17.6-18.9] ms | 4.8 [4.7-4.9] ms | 4.7 [4.6-4.8] ms |
+| Target CPU per successful request at 800 rps | 1.86 [1.84-1.95] ms | 0.95 [0.94-0.96] ms | 0.95 [0.94-0.95] ms |
+| Ops per gigacycle at 800 rps | 139 [133-141] | 294 [290-296] | 294 [293-296] |
+| Ops per gigacycle at 2,400 offered | 147 [144-149] | 338 [336-341] | 340 [339-340] |
+| Effective clock at 800 rps | 3.869 GHz | 3.689 GHz | 3.693 GHz |
+| Instructions per cycle at 800 rps | 1.34 | 0.85 | 0.85 |
+| Disk reads in the 800 rps step | 91 MiB | 3,485 MiB | 3,482 MiB |
+| Cold start to first 200, page cache dropped | 4.11 [4.07-4.21] s | 2.47 [2.37-2.59] s | 2.49 [2.41-2.49] s |
+| Target memory peak (budget 2,048 MiB) | 2,048 MiB | 1,750 MiB summed | 1,748 MiB summed |
+
+- **On `bench`, at 2 CPU / 2 GiB, the assembled application used about half the CPU per request of the Harper reference application at the highest rate both served, and served at least 2.15 times its requests per second at the top of the ladder.** At 800 rps, against the durability-matched stack: 1.96× [1.92-2.06] in CPU per request and 2.11× [2.05-2.22] in ops per gigacycle, measured at all-core turbo, 3.87 and 3.69 GHz. The reference saturated at 1,091 to 1,155 rps on 1.92 to 1.96 cores. The stack served 2,386 of the 2,400 rps offered on 1.89 cores without shedding, so its saturation throughput, and the 2.15× [2.11-2.19], are lower bounds: the ladder stopped short of its knee.
+- **The ratio depends on the step.** In CPU per request it is 2.6 to 2.9× from 50 to 200 rps and 1.9 to 2.2× from 300 rps up, the same with the writes counted. At 50 rps the reference used 0.21 cores against the stack's 0.07: about 0.12 cores that its per-request cost at high rates does not account for, against about 0.03 for the stack. What that rate-independent cost is was not measured; the 20 writes/s every step carries are one candidate.
+- **The reference's latency tail is not queueing.** Its p99 was 3.8 to 10.6 times the stack's at every rate both served. At 50 rps, with the target at a tenth of its CPU budget, its median service time equalled the stack's, 1.0 ms in every trial, while its p99 service time was 16.6 to 18.2 ms against 3.3 to 3.7. At 800 rps it was 79 to 87 ms against 6.4 to 7.2. One request in a hundred stalls for about 15 ms in the reference while it is nearly idle.
+- **The reference's extra CPU is instructions executed, not cycles waiting on memory or I/O.** Per request at 800 rps it executed about 9.6 million instructions at 1.34 per cycle and the stack about 2.9 million at 0.85 (cycles per request times IPC): 3.3 times the instructions for 2.1 times the cycles. It read 91 MiB from disk in that step against the stack's 3.5 GB.
+- **Matching durability changed nothing measurable at this write rate.** `fpr-async` and `fpr` agree within their ranges at every step: 0.949 and 0.947 ms of CPU per request at 800 rps, 2,386.7 and 2,386.6 rps at the top step. At 20 writes/s a synchronous commit is about 20 WAL flushes per second on local SSD, so the reference's unsynced commits account for none of the gap here. A higher write rate is where they could ([M2](implementation-review.md#harness-and-measurement), still owed).
+- **Against session 1.** Session 1 measured 4.0 to 4.2× in CPU per request at 100 rps and 5.5× in throughput at saturation, before the fixes and on dataset 0.5.0. Session 3 measured 2.6 to 2.8× at 100 rps and at least 2.15×. Both applications and the workload changed in between, and the stack's top step rose too, from 795 rps saturated to 2,387 not saturated, so the difference is not an improvement of the reference alone.
+- **The generator had headroom in every step of every trial:** dispatch-lag p99 at most 2.65 ms, generator CPU at most 0.15 of a core. Kernel time no cgroup was charged for was -0.09 to 0.00 cores.
+- **Correctness guards.** Before the session, on `bench`: a sampled differential over 1,001 quotes and 10,003 product views found every response equal between the two applications, the first on `bench`, and ecommerce-store's coherence check passed on both (every view reflected the last write within 1 s). Every stack trial's coherence audit compared 6,884 cached responses with Postgres alone: all identical. On `dev`, conformance passed 24 of 24 on both. The reference was verified by `verify-run-record.mjs`.
+
+### Where the reference's time goes now
+
+Diagnostics on session 3's host after the session, not measurements: one request at a time on a freshly restored target, after a warm-up of the 2,000 hottest carts and 2,000 hottest products (`scripts/run.sh timing`, raw output kept with the session). The reference also ran with `SERVER_TIMING_WAVES=1` ([ecommerce-store #6](https://github.com/HarperFast/ecommerce-store/pull/6)). Server time is each target's own `Server-Timing` `total`, median [p90]; the reference's rows from rank 100,000 ran with per-wave entries on, which add a few microseconds:
+
+| | Reference | Stack |
 |-|-|-|
-| Question | Harper reference vs Fastify + Postgres + Redis | The reference's quote-read batching: the checkout against `dd3a5f5^` |
-| Targets, rounds | `harper fpr`, 3 rounds alternating | `harper harper-unbatched`, 3 rounds alternating |
-| Report | [session-20261015T222926Z.md](results/session-20261015T222926Z.md) | [session-20261015T231012Z.md](results/session-20261015T231012Z.md) |
-| Host | `c4-standard-16-lssd`, `us-east5-a` | `c4-standard-16-lssd`, `us-east4-a` |
-| Trials accepted | 6 of 6, none set aside | 6 of 6, none set aside |
-| Clock probe | 3.899 / 3.897 GHz (target only / all busy), 0.1% spread | 3.897 / 3.897 GHz, 0.2% spread |
-| application-architecture-benchmarks | `e4f5ed7` | `d340f68` (adds only the unbatched build fix) |
+| Quote, the 400 hottest carts | 0.47 [0.88] ms | 0.37 [0.57] ms |
+| Quote, 400 carts from rank 100,000 | 0.80 [1.46] ms | 1.56 [3.09] ms |
+| Product view, the 400 hottest (cache hits) | 0.09 [0.11] ms | 0.05 [0.06] ms |
+| Product view, 400 from rank 100,000 (misses) | 0.89 [1.08] ms | 0.91 [1.10] ms |
 
-The two sessions ran at the same time on separate VMs in different regions, so they share no host. Each compares only its own targets: the methodology's "measure every target in one session". Nothing here divides a session-1 figure by a session-2 figure. The reference's checkout build ran in both: 131 to 148 rps at saturation in session 1, 137 to 148 in session 2, a spread within each session as large as any difference between them ([trial-to-trial variation](#trial-to-trial-variation)).
+- **One request at a time, the reference's handlers are about as fast as the stack's,** and faster on a cold quote, whose reads it makes in process. So neither the 2× CPU per request under load nor the latency tail is in the handlers' reads.
+- **The promotion lookup is no longer the quote's cost.** On the cold carts the quote's waves took, at the median and overlapping: cart 0.17 ms, customer 0.10, variants 0.18, inventory 0.25, products 0.16, promotions 0.22. On the hottest carts promotions took 0.21 ms of 0.45 ms of reads. In session 1 the quote's reads took 19.1 ms.
+- **The old lookup is still slow in the engine.** `scripts/promotion-probe.sh` still times the two `in` conditions the reference used to send: 68 to 115 ms per search over dataset 0.6.0's promotions, about a whole-table read (65 to 78 ms), which [harper#3240](https://github.com/HarperFast/harper/issues/3240) describes. The stack's candidate query for a gold-tier customer and three categories returned 16 rows in 0.09 ms from 33 buffer hits.
+- **What that leaves, for the Harper side to profile** ([harper#TBD](https://github.com/HarperFast/harper/issues)): the cost is outside the handlers' reads. Candidates are HTTP handling and REST dispatch, serialization, the worker threads, garbage collection, and the 20 writes/s, any of which could also stall one request in a hundred at low load. A CPU profile and an event-loop stall histogram under load at 800 rps are the next diagnostics.
 
-Common to both: ecommerce-store `main` at `f47978b` (Harper 5.3.2, dataset generator 0.5.0, `bench`: 2,000,000 products, 6,570,143 variants, 31,281,273 inventory rows, 5,000 promotions); Debian 13, kernel 6.12.111, Docker 29.9.1 with the systemd cgroup driver; `ALL_CORE_MAX`, architectural PMU, one thread per core; the target in `bench-target.slice` (CPUs 2-3, `MemoryMax=2G`, no swap), the generator in `bench-generator.slice` (CPUs 4-7) with a 4-CPU, 3 GiB container. Ladder 25, 50, 100, 200, 400, 800, 1,600 rps, 60 s steps, seeded Poisson arrivals, 50% quotes, 20 writes/s; the fixed `bench` warm-up of 120,000 requests at 100 rps before every ladder; every trial restored from the session's snapshot and cold-started on a dropped page cache. Base images are pinned by digest; image digests, commits and host conditions are in each trial's records.
+### DATA-004, caches, clock and variation
 
-## Where it lands
+- **`DATA-004` was met in every trial,** on the same bases as session 1: the reference against its 2,048 MiB limit and Postgres against its 1,280 MiB, each at 100% and reading from disk in every step. Redis peaked at 203 MiB of 256 (79%) and the app at 264 to 269 MiB of 512 (52%), neither reading from disk. The reference resolved the same memory sizes in every trial: 512 MiB of old space per worker, a 512 MiB block cache and a 171 MiB write-buffer manager.
+- **The stack's caches, still not a cache that holds everything.** Median of the durability-matched stack's trials:
 
-Session 1, three accepted trials per target, median [min-max] ([tables](results/session-20261015T222926Z.md)):
+  | Offered rps | Entity cache hit | Aggregate cache hit | Redis keyspace hit | Redis evictions | Postgres buffer hit | Postgres blocks read | Disk reads |
+  |-|-|-|-|-|-|-|-|
+  | 50 | 69.6% | 4.3% | 48.9% | 0 | 91.6% | 14,799 | 250 MiB |
+  | 200 | 67.5% | 9.2% | 47.3% | 39,762 | 91.7% | 52,769 | 887 MiB |
+  | 800 | 64.6% | 18.4% | 45.8% | 133,503 | 91.6% | 209,721 | 3,485 MiB |
+  | 2,400 | 63.5% | 22.8% | 45.3% | 396,724 | 91.4% | 628,582 | 10,570 MiB |
+
+  Redis reached its 153 MB `maxmemory` at 150 rps and evicted from then on. Entity hits are higher than session 1's 46 to 64%, which fits [#10](https://github.com/HarperFast/application-architecture-benchmarks/pull/10)'s hour-long entity expiry; aggregates still mostly miss, and Postgres serves every miss from a buffer pool that reads from disk in every step. The reference's product cache hit 4.3 to 22.2%, the same as the stack's aggregates, as the same key stream would suggest.
+- **No step drifted.** Each step was at most 1.27% from the same step's median across its target's trials: one durability-matched trial's 200 rps step ran at 3.696 GHz and IPC 0.65, against 3.644 to 3.650 GHz and 0.83 to 0.85 in the other two. Only the reference's saturated steps reached full budget, at most 0.09% from their median of 3.880 GHz. The stack's effective clock rose with its load from 3.65 to 3.76 GHz, as in session 1.
+- **Trial-to-trial variation was smaller than in sessions 1 and 2.** The reference's saturated throughput varied by 1.6 to 4.5% between trials (10 to 20% before), and the stack's CPU per request at the top step by 1.3%. Whether the earlier spread was other tenants is still unanswered ([below](#trial-to-trial-variation)).
+
+## Where session 1 landed
+
+Session 1, before the fixes, three accepted trials per target, median [min-max] ([tables](results/session-20261015T222926Z.md)):
 
 | | Harper reference | Fastify + Postgres + Redis |
 |-|-|-|
@@ -44,7 +114,7 @@ Session 1, three accepted trials per target, median [min-max] ([tables](results/
 
 ## Where the reference's time goes
 
-Diagnostics on session 1's host after the session, not measurements: one request at a time on a freshly restored target, after a short warm-up of the hottest keys (`scripts/run.sh timing`, `scripts/promotion-probe.sh`; raw output kept with the session).
+Session 1, before the fixes. Diagnostics on session 1's host after the session, not measurements: one request at a time on a freshly restored target, after a short warm-up of the hottest keys (`scripts/run.sh timing`, `scripts/promotion-probe.sh`; raw output kept with the session).
 
 - **The quote's reads.** From each target's own `Server-Timing` for the 400 hottest carts, the reference's quote spent a median 19.1 ms in `data` and 0.3 ms in `compute`; the stack's 1.9 ms and 0.2 ms. Product aggregates for the hottest products took about 0.1 ms on both. On `dev` (tier 1, the same diagnostic) the reference's quote `data` phase was 1.1 ms against the stack's 0.6 ms.
 - **The promotion candidates are a large part of it.** For a gold-tier customer and three categories, 619 of the 5,000 `bench` promotions pass both of `quote.js`'s indexed conditions (`tierKeys in [tier, *]`, `categoryKeys in [categories…, *]`); the tier condition alone matches 2,164 and the categories alone 1,478. Over the reference's REST interface, the two-condition search took a median 7 to 10 ms (by condition order, and ids or full rows), about what each single condition costs (6.9 and 8.9 ms with full rows) and about an eighth of a whole-table read (68 ms). The stack's query for the same values took 0.75 ms in Postgres: a bitmap scan of the category GIN index filtered by tier, 146 shared-buffer hits. In session 1's trials the stack's candidate query averaged 649 rows and 1.0 ms per quote (`pg_stat_statements`). `dev` has 160 promotions, which is why tier 1 never showed this.
@@ -125,7 +195,15 @@ The runbook's untested list ran for the first time. What broke, and the change m
 4. **The unbatched build failed under Docker.** Docker's Compose 5.6.0 builds through Buildx 0.38 Bake, which refuses a Dockerfile outside both the build context and the compose project's directory: `harper-unbatched` builds the archived commit with the ecommerce-store checkout's Dockerfile. `run.sh` sets `BUILDX_BAKE_ENTITLEMENTS_FS=0` for the reference's build. ecommerce-store's own `TARGET_REF` build, reproduced on the same host, is unaffected: its compose project directory holds the Dockerfile.
 5. **The reference's memory sizes were not recorded.** Added: `run.sh` reads them from inside the running target after every trial, with the inputs and the source lines of Harper's rules; the report prints them per trial with the `DATA-004` basis.
 6. **Operator traps, no script change:** IAP ssh refused for about a minute after each VM was created; `pkill -f <pattern>` over `vm.sh ssh` matched the remote shell's own command line and ended the session; a `tmux` command with `$S` inside single quotes ran with it unset. Updating a checkout while a trial's `run.sh` runs is safe (git replaces files, the running shell keeps the old one), but trials in one session should run one commit, so code changes waited for session ends. The promotion probe first named its customer tier `TIER`, shadowing the session's `TIER=2`; fixed before it produced output.
-7. **Within-session variation is larger than expected.** 10 to 20% between trials of one target at a constant clock ([above](#trial-to-trial-variation)). Alternating the order, as the procedure does, spreads it across targets; it does not shrink it.
+7. **Within-session variation is larger than expected.** 10 to 20% between trials of one target at a constant clock ([above](#trial-to-trial-variation)). Alternating the order, as the procedure does, spreads it across targets; it does not shrink it. Session 3's was 1.6 to 4.5%.
+
+Session 3 added these:
+
+8. **The `bench` correctness gates overwrote committed `dev` results.** `run.sh` named the differential's and coherence check's outputs by dataset generator, not scale, so the `bench` gates before the session wrote over `results/*-dataset-0.6.0.*`, and the VM checkout was dirty. The shakedown and the reference's round-1 trial record a dirty `application-architecture-benchmarks` tree, with results files changed and no code. The outputs were moved aside and the files restored before the next trial. `run.sh` now adds the scale to those names when it is not `dev` (`50273d8`).
+9. **A provisional report during the session dirtied the checkout again.** At about 00:20 UTC the operator ran `report.mjs` in the VM checkout to read rounds 1 and 2, and it wrote an untracked `results/session-20261016T205813Z.json`. The two trials that started after it, round 3's `fpr-async` and `fpr`, record a dirty tree, and their verifier lines warn that they were "produced from a dirty working tree". `git status` at the session's end showed that file alone. The runbook now says to keep the tree clean and to run a provisional report on a copy of `results/raw`.
+10. **The `bench` differential needs two targets at once,** which the 2 GiB target slice cannot hold (the remaining part of [E7](implementation-review.md#equivalence-of-the-two-applications)). The slice's `MemoryMax` was raised to 8 GiB for the differential only, then restored to 2 GiB and checked before the shakedown.
+11. **The ladder's top was below the stack's knee.** 2,400 rps left the stack at 1.89 cores without shedding, so its saturation throughput is still unmeasured on `bench`.
+12. **Capacity again:** at 20:14 UTC us-east5 had no `c4-standard-16-lssd`, and us-east4-a did.
 
 Also confirmed for the first time, with no change needed: `compose.tier2.yaml` under Docker's Compose with `!reset`, a three-container target in `bench-target.slice`, container scope discovery from the host and the generator, `sudo systemd-run` of `sample.sh` per trial, the cycle join against real `perf stat --for-each-cgroup -x,` output (its column layout as inferred), the join in the generator container over a root-owned sample directory, loading `bench` into Postgres (2 min 56 s including keys, indexes and foreign keys; a 6.9 GB snapshot, restored in about 20 s), and the per-cgroup `DATA-004` judgement.
 
@@ -135,13 +213,15 @@ Also confirmed for the first time, with no change needed: `compose.tier2.yaml` u
 |-|-|-|-|
 | `arch-bench-ethan`, us-east5-a | 21:12 to 01:26 UTC | 4 h 14 min | about $4.10 |
 | `arch-bench-ethan-ab`, us-east4-a | 22:36 to 02:04 UTC | 3 h 28 min | about $3.40 |
+| `arch-bench-ethan`, us-east4-a, session 3 | 20:17 to 01:57 UTC | 5 h 40 min | about $5.50 |
 
-About $7.50 in all. `vm.sh down` after each; after the second, it found no instance, disk, reserved address or router left in the project. Raw results are kept locally in `results/raw/20261015t2107/` and `results/raw/20261015t2230/` (not committed), each with its session's archive and SHA-256.
+About $13 in all. `vm.sh down` after each; after the second and the third, it found no instance, disk, reserved address or router left in the project. Raw results are kept locally in `results/raw/20261015t2107/`, `results/raw/20261015t2230/` and `results/raw/20261016t2014/` (not committed), each with its session's archive and SHA-256.
 
 ## What the published comparison needs next
 
-1. **The [implementation review](implementation-review.md#before-the-next-big-run)'s list,** starting with **the reference's quote reads, investigated on the Harper side first** (methodology: a measured loss guides Harper engineering, then the comparison is re-run): whether Harper's search can intersect two indexed conditions, how the reference should look promotions up, and why its other quote reads cost more on `bench` than on `dev`. A CPU profile of one `bench` quote is the next diagnostic.
-2. **Load ladders that locate each knee.** The geometric ladder put the reference's knee between 100 and 200 rps and the stack's between 400 and 800, in one step each. A second pass needs finer steps around each, and per-target ladders are acceptable as long as every target gets the same arrival process.
-3. **Both implementations reviewed, steelman and adversarial**, per [step 5](../../README.md#5-review-the-implementation), with the promotion lookup first on both sides; and the still-missing ground-truth guard.
-4. **The reference's memory configuration decided** (configured or derived), now that the derived values are on record.
-5. **More trials, and a check on the noise floor.** Three per target separated the stacks by a wide margin, but not the batching A/B. One sole-tenant session (`environments/gcp` decision 4) would show whether the 10 to 20% trial-to-trial variation is other tenants or the targets themselves.
+1. **The reference's request path profiled on the Harper side** ([harper#TBD](https://github.com/HarperFast/harper/issues)), since its handlers' reads are no longer the cost: a CPU profile and an event-loop stall histogram under load at 800 rps on `bench`, to find the 3.3 times the instructions per request and the stall that sets its p99 at low load. Then the comparison is re-run, as the methodology asks of a measured loss. [harper#3240](https://github.com/HarperFast/harper/issues/3240) to [#3243](https://github.com/HarperFast/harper/issues/3243) stay open: the reference works around the first two, and the fourth is matched here rather than fixed.
+2. **A ladder past the stack's knee.** The reference's knee lies between 800 and 1,200 rps and the stack's above 2,400. The next session should add 3,200 and 4,800 rps, or use per-target ladders with the same arrival process.
+3. **A write-rate sensitivity** ([M2](implementation-review.md#harness-and-measurement)). At 20 writes/s, matched and durable commits did not differ; at higher rates they may, and the rate-independent cost of the reference may be the writes.
+4. **The rest of the [implementation review](implementation-review.md#before-the-next-big-run)'s list,** and a review of both promotion lookups as they now are; the still-missing ground-truth guard beyond the differential.
+5. **The reference's memory configuration decided** (configured or derived), now that the derived values are on record.
+6. **More trials, and a check on the noise floor.** Session 3 varied by 1.6 to 4.5% between trials, sessions 1 and 2 by 10 to 20%. One sole-tenant session (`environments/gcp` decision 4) would show whether that is other tenants.

@@ -4,7 +4,7 @@ The first tier-2 session is exploratory: step 0 for tier 2, not a publishable re
 
 The host is set up, qualified and torn down exactly as `environments/gcp/README.md` says; this runbook does not repeat it, and points to its section for each of those steps.
 
-The first two sessions ran on 2026-10-15 and 16 ([findings-tier2.md](findings-tier2.md)): every step below, every target, 12 trials, none set aside. What they changed, and what is still untested, is listed at the end.
+The first two sessions ran on 2026-10-15 and 16 ([findings-tier2.md](findings-tier2.md)): every step below, every target, 12 trials, none set aside. Session 3, on 2026-10-16 and 17, ran three targets and 9 trials, none set aside. What they changed, and what is still untested, is listed at the end.
 
 ## Pinned inputs
 
@@ -109,7 +109,7 @@ Watch it with short ssh calls (`tail results/raw/trials.log`); every trial line 
 
 Before the session, run a short shakedown trial per target; on 2026-10-15 it found a coherence audit that would have run for hours after every `fpr` trial. Run each target once with a small warm-up and two steps (`RATES=25,50 BENCH_ARGS="--warmup-requests 3000 --warmup-rate 100" SAMPLE_SH=... CONDITIONS_SH=... scripts/run.sh bench <target>`). Verification fails it on the warm-up and on `DATA-004` by design; check the rest: the cycle join, the per-cgroup memory lines, the reference's memory-sizing record, the coherence audit. Move its files out of `results/raw` before the session.
 
-Keep a session on one commit of this repository: `run.sh` runs afresh for every trial, so a checkout changed mid-session gives later trials another commit.
+Keep a session on one commit of this repository: `run.sh` runs afresh for every trial, so a checkout changed mid-session gives later trials another commit. Keep its working tree clean as well. Every trial records whether the checkout is dirty, and an untracked file counts, so nothing writes into `results/` until the session ends. A provisional report runs against a copy of `results/raw` outside the checkout, since `report.mjs` writes its JSON one directory above the log.
 
 ## 6. Report
 
@@ -148,6 +148,8 @@ On `bench`, `verify-run-record.mjs` judges DATA-004's memory evidence per cgroup
 ## Tested, and not yet tested
 
 The first sessions, 2026-10-15 and 16, ran every step above on the Linux host with both targets and the unbatched build: `compose.tier2.yaml` under Docker's Compose (5.6.0) with `!reset` and `cgroup_parent` for a three-container target; Docker scope discovery from the host and the generator, and the wrapper's tier-2 accounting; `sample.sh` and `conditions.sh` per trial under `sudo systemd-run`; the cycle join against real `perf stat --for-each-cgroup -x,` output, run in the generator container over a root-owned sample directory; loading `bench` into Postgres and restoring its uncompressed snapshot; and `DATA-004`'s per-cgroup memory evidence, met by every trial of both targets.
+
+Session 3, 2026-10-16 to 17, also ran three targets in one session (`fpr-async` sharing `fpr`'s containers and snapshot), the sampled `bench` differential and coherence checks before it, and the page-cache drop check on tier 2.
 
 What they changed: the coherence audit is bounded by the run's write stream (it would have run for hours on `bench`) and a failing audit sets the trial aside instead of aborting `run.sh`; the unbatched build passes Buildx Bake's entitlement check; the reference's resolved heap and block-cache sizes are recorded after every trial. See [findings-tier2.md](findings-tier2.md#traps-hit-and-what-changed).
 
