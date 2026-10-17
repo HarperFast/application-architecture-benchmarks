@@ -4,11 +4,13 @@
  *
  * Warms the target with the hottest keys first (the workload's scrambled Zipf), then times quotes
  * for the hottest carts and product aggregates for the hottest products in one tier and region,
- * and prints the median and p90 of each phase. Run against a freshly restored target outside a
- * measured trial; the numbers describe one target's service time, never a comparison result.
+ * and prints the median and p90 of each phase. `--from <rank>` times the keys from that rank of the
+ * Zipf instead of the hottest, so the timed reads miss what the warm-up cached. Run against a freshly
+ * restored target outside a measured trial; the numbers describe one target's service time, never a
+ * comparison result.
  *
  *   node server-timing.mjs --url http://localhost:39936 --dataset <expanded dataset dir> \
- *     --ecommerce-store <checkout> [--carts 400] [--products 400] [--warm 2000]
+ *     --ecommerce-store <checkout> [--carts 400] [--products 400] [--warm 2000] [--from 0]
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -25,6 +27,7 @@ const ES = argOf('ecommerce-store');
 const CARTS = Number(argOf('carts', 400));
 const PRODUCTS = Number(argOf('products', 400));
 const WARM = Number(argOf('warm', 2000));
+const FROM = Number(argOf('from', 0));
 
 const { sampleIds } = await import(pathToFileURL(join(ES, 'bench/workload.mjs')).href);
 const { scramble } = await import(pathToFileURL(join(ES, 'node_modules/@ecommerce-store/spec/src/index.ts')).href);
@@ -33,7 +36,7 @@ const [cartIds, productIds] = await Promise.all([
 	sampleIds(DATASET, 'cart', 'id', rows.cart.rows, rows.cart.rows),
 	sampleIds(DATASET, 'product', 'id', rows.product.rows, rows.product.rows),
 ]);
-const hottest = (ids, n) => Array.from({ length: Math.min(n, ids.length) }, (_, rank) => ids[scramble(rank, ids.length)]);
+const hottest = (ids, n, from = 0) => Array.from({ length: Math.max(0, Math.min(n, ids.length - from)) }, (_, i) => ids[scramble(from + i, ids.length)]);
 
 const timing = (header) => Object.fromEntries((header ?? '').split(',').map((part) => {
 	const [name, ...params] = part.trim().split(';');
@@ -67,7 +70,7 @@ const summarize = (samples) => {
 		...phases.map((p) => [p, { p50: quantile(samples.map((s) => s[p]), 0.5), p90: quantile(samples.map((s) => s[p]), 0.9) }])]);
 };
 const quotes = [];
-for (const id of hottest(cartIds, CARTS)) quotes.push(await call('quote', id));
+for (const id of hottest(cartIds, CARTS, FROM)) quotes.push(await call('quote', id));
 const products = [];
-for (const id of hottest(productIds, PRODUCTS)) products.push(await call('product', id));
-console.log(JSON.stringify({ url: URL, warm: WARM, quote: summarize(quotes), product: summarize(products) }, null, 2));
+for (const id of hottest(productIds, PRODUCTS, FROM)) products.push(await call('product', id));
+console.log(JSON.stringify({ url: URL, warm: WARM, from: FROM, quote: summarize(quotes), product: summarize(products) }, null, 2));

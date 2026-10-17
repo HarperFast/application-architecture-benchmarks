@@ -72,7 +72,7 @@ export async function priceCart(catalog, cartId, timer) {
 		if (!customer) return [];
 		const categories = new Set();
 		for (const product of products.values()) for (const category of product.categoryIds) categories.add(category);
-		return catalog.promotions(customer.tier, [...categories]);
+		return catalog.promotions(customer.tier, [...categories], skus);
 	});
 	const [variants, customer, products, inventory, promotions] = await timer.data(
 		Promise.all([variantsP, customerP, productsP, inventoryP, promotionsP])

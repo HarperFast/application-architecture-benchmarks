@@ -4,16 +4,16 @@ The first tier-2 session is exploratory: step 0 for tier 2, not a publishable re
 
 The host is set up, qualified and torn down exactly as `environments/gcp/README.md` says; this runbook does not repeat it, and points to its section for each of those steps.
 
-The first two sessions ran on 2026-10-15 and 16 ([findings-tier2.md](findings-tier2.md)): every step below, every target, 12 trials, none set aside. What they changed, and what is still untested, is listed at the end.
+The first two sessions ran on 2026-10-15 and 16 ([findings-tier2.md](findings-tier2.md)): every step below, every target, 12 trials, none set aside. Session 3, on 2026-10-16 and 17, ran three targets and 9 trials, none set aside. What they changed, and what is still untested, is listed at the end.
 
 ## Pinned inputs
 
 | Input | Value |
 |-|-|
-| ecommerce-store | `main` at `f47978b` (where #4 merged), dataset generator 0.5.0 |
+| ecommerce-store | `main` at `8c43963`: SPEC `0.3.0-draft` and dataset generator 0.6.0 (HarperFast/ecommerce-store#7), with the reference's SKU-aware promotion lookup (#8). The first two sessions ran `f47978b`, generator 0.5.0 |
 | application-architecture-benchmarks | the commit of this runbook: `main` from `2529e09`, where `environments/gcp` (#5) and this comparison (#6) merged, or the session's own branch |
 | Machine | `c4-standard-16-lssd`, ALL_CORE_MAX, PMU, SMT off (`environments/gcp` "Instance") |
-| Ladder | `25,50,100,200,400,800,1600` rps, 60 s steps; 50% quotes, 20 writes/s |
+| Ladder | `50,100,150,200,300,450,600,800,1200,1600,2400` rps, 60 s steps; 50% quotes, 20 writes/s. The first two sessions ran `25,50,100,200,400,800,1600`, which put each knee within one step |
 | Warm-up | the harness's fixed `bench` warm-up, 120,000 requests at 100 rps (`WARMUP` in ecommerce-store `packages/spec`), identical for every target |
 | Arrivals | seeded Poisson, the harness's `bench` default (`PUBLISHED_RUN`), the same arrival times for every target |
 | Budget | `bench-target.slice`: CPUs 2-3, `MemoryMax=2G`, no swap, every target container in it, no CPU quotas |
@@ -65,8 +65,12 @@ Record the session's host conditions once, then start the session. Do not also s
 ```bash
 sudo bash ~/conditions.sh $S/conditions /mnt/lssd/src/*
 SESSION_MINUTES=$(( 480 - $(awk '{print int($1 / 60)}' /proc/uptime) - 60 )) \
-SAMPLE_SH=$HOME/sample.sh CONDITIONS_SH=$HOME/conditions.sh TARGETS="harper fpr" SESSION_TRIALS=3 scripts/session.sh
+SAMPLE_SH=$HOME/sample.sh CONDITIONS_SH=$HOME/conditions.sh TARGETS="harper fpr-async fpr" SESSION_TRIALS=3 scripts/session.sh
 ```
+
+**Durability (SPEC `WRITE-005`).** The reference acknowledges writes before syncing them ([HarperFast/harper#3243](https://github.com/HarperFast/harper/issues/3243)), so it fails `WRITE-005`, and SPEC asks a comparison that includes it to match the guarantee. `fpr-async` is the matched stack: Postgres with `synchronous_commit=off`, restoring `fpr`'s snapshot. `fpr`, durable, is the sensitivity that shows what syncing costs. Three targets for three rounds need about 7.5 h, so create the VM with `MAX_RUN=10h` and compute `SESSION_MINUTES` from 600.
+
+**A `bench` differential before the trials.** After seeding, `DIFF_ARGS="--cart-stride 300 --product-stride 4000" scripts/run.sh diff` compares the two targets' responses on a sample of `bench`. It is a correctness gate, not a measurement, and its result goes with the session.
 
 Add `harper-unbatched` to `TARGETS` for the quote-batching A/B; it builds the reference from `HARPER_UNBATCHED_REF` (default `dd3a5f5^`) with ecommerce-store's own build variables, and is refused if that commit's schema differs from the checkout's.
 
@@ -105,7 +109,7 @@ Watch it with short ssh calls (`tail results/raw/trials.log`); every trial line 
 
 Before the session, run a short shakedown trial per target; on 2026-10-15 it found a coherence audit that would have run for hours after every `fpr` trial. Run each target once with a small warm-up and two steps (`RATES=25,50 BENCH_ARGS="--warmup-requests 3000 --warmup-rate 100" SAMPLE_SH=... CONDITIONS_SH=... scripts/run.sh bench <target>`). Verification fails it on the warm-up and on `DATA-004` by design; check the rest: the cycle join, the per-cgroup memory lines, the reference's memory-sizing record, the coherence audit. Move its files out of `results/raw` before the session.
 
-Keep a session on one commit of this repository: `run.sh` runs afresh for every trial, so a checkout changed mid-session gives later trials another commit.
+Keep a session on one commit of this repository: `run.sh` runs afresh for every trial, so a checkout changed mid-session gives later trials another commit. Keep its working tree clean as well. Every trial records whether the checkout is dirty, and an untracked file counts, so nothing writes into `results/` until the session ends. A provisional report runs against a copy of `results/raw` outside the checkout, since `report.mjs` writes its JSON one directory above the log.
 
 ## 6. Report
 
@@ -144,6 +148,8 @@ On `bench`, `verify-run-record.mjs` judges DATA-004's memory evidence per cgroup
 ## Tested, and not yet tested
 
 The first sessions, 2026-10-15 and 16, ran every step above on the Linux host with both targets and the unbatched build: `compose.tier2.yaml` under Docker's Compose (5.6.0) with `!reset` and `cgroup_parent` for a three-container target; Docker scope discovery from the host and the generator, and the wrapper's tier-2 accounting; `sample.sh` and `conditions.sh` per trial under `sudo systemd-run`; the cycle join against real `perf stat --for-each-cgroup -x,` output, run in the generator container over a root-owned sample directory; loading `bench` into Postgres and restoring its uncompressed snapshot; and `DATA-004`'s per-cgroup memory evidence, met by every trial of both targets.
+
+Session 3, 2026-10-16 to 17, also ran three targets in one session (`fpr-async` sharing `fpr`'s containers and snapshot), the sampled `bench` differential and coherence checks before it, and the page-cache drop check on tier 2.
 
 What they changed: the coherence audit is bounded by the run's write stream (it would have run for hours on `bench`) and a failing audit sets the trial aside instead of aborting `run.sh`; the unbatched build passes Buildx Bake's entitlement check; the reference's resolved heap and block-cache sizes are recorded after every trial. See [findings-tier2.md](findings-tier2.md#traps-hit-and-what-changed).
 

@@ -84,7 +84,7 @@ One table per logical entity; the source of truth is not pre-joined. Mapping fro
 | `variant` | `variant(sku, product_id, options jsonb, base_price bigint, weight)`, fillfactor 90 so price updates are HOT. |
 | `inventory` | `inventory(sku, location_id, on_hand)`, primary key `(sku, location_id) INCLUDE (on_hand)`, fillfactor 100 (`on_hand` is in the key, so its updates are never HOT and free space would go unused). The dataset's `id` (`sku:locationId`) is not stored; the write surface parses it. |
 | `location`, `rate` | As in the dataset. |
-| `promotion` | The eligibility arrays plus the dataset's indexable `tier_keys` / `category_keys` (`'*'` = unrestricted), each GIN-indexed. |
+| `promotion` | The eligibility arrays plus the dataset's indexable `tier_keys` / `category_keys` (`'*'` = unrestricted). The candidate query reads SPEC 0.3.0's candidate set exactly: promotions open to every SKU that match the tier and a cart category, through GIN indexes on those two keys that are partial on `skus = '{}'`, plus promotions naming a cart SKU, through a GIN index on `skus`. |
 
 Money is `bigint` minor units, parsed to exact JavaScript integers (the parser refuses anything outside `Number.MAX_SAFE_INTEGER`); all pricing arithmetic is exact integer arithmetic (DATA-002). The database uses the C collation so ids compare bytewise, as JavaScript compares them.
 
@@ -115,7 +115,7 @@ A generation must outlive every value it guards: a fill that read an absent gene
 
 ```text
 cart ──┬─> variants ──> products ──┐
-       └─> customer ──┬────────────┴─> promotions (tier x categories)
+       └─> customer ──┬────────────┴─> promotions (tier x categories, plus cart SKUs)
                       └─> inventory (skus x the customer's region locations)
 then pricing in JavaScript; shipping and tax from the in-memory rate table
 ```
@@ -130,7 +130,7 @@ Recorded as the methodology asks (advantages as well as costs):
 
 - **Less:** a cached product aggregate is served as stored bytes with no deserialization or re-serialization. The quote's waves are batched into one round trip each and overlapped where the data dependencies allow; the reference reads each line's variant and product sequentially and each inventory row individually. These are choices the reference could also make.
 - **More:** every read crosses a network boundary to Redis or Postgres and pays protocol encoding and decoding on both sides. Every write pays a Postgres commit (`synchronous_commit = on`, fsync on) plus a Redis round trip for invalidation. Three processes each hold their own memory and their own copy of hot data (Postgres buffers, Redis values, parsed objects in Node).
-- **Different guarantees:** durability is Postgres defaults (every commit fsynced); the reference, on Harper 5.3.2's RocksDB storage, does not fsync an acknowledged write ([HarperFast/harper#3243](https://github.com/HarperFast/harper/issues/3243)), which SPEC requires of both, so it is disclosed as an advantage the reference has. Freshness is synchronous invalidation with the race closed, at least as strong as the reference's invalidate-plus-expiry. A quote does not read one consistent snapshot: it combines Redis values filled at different times with separate READ COMMITTED statements, where the reference reads inside one context; SPEC does not require one. Cart, customer and product entities are cached for up to an hour with no invalidation path, which CACHE-002 allows: it covers writes made through the write surface, and no write surface writes them. See the comparison's [implementation review](../../comparisons/ecommerce-store-rough/implementation-review.md) (E2, E4, E5).
+- **Different guarantees:** durability is Postgres defaults (every commit fsynced). The reference, on Harper 5.3.2's RocksDB storage, does not fsync an acknowledged write ([HarperFast/harper#3243](https://github.com/HarperFast/harper/issues/3243)), which SPEC `WRITE-005` requires of both. A comparison that includes the reference matches the guarantee: its `fpr-async` target runs this stack with `synchronous_commit=off` (`PG_SYNCHRONOUS_COMMIT`), which acknowledges a commit before its WAL is flushed. That is no stronger than the reference on an operating-system crash, and weaker on a Postgres crash, where up to about three `wal_writer_delay` periods of commits can be lost. Freshness is synchronous invalidation with the race closed, at least as strong as the reference's invalidate-plus-expiry. A quote does not read one consistent snapshot: it combines Redis values filled at different times with separate READ COMMITTED statements, where the reference reads inside one context; SPEC does not require one. Cart, customer and product entities are cached for up to an hour with no invalidation path, which CACHE-002 allows: it covers writes made through the write surface, and no write surface writes them. See the comparison's [implementation review](../../comparisons/ecommerce-store-rough/implementation-review.md) (E2, E4, E5).
 
 ## Configuration choices
 
@@ -140,6 +140,6 @@ Recorded as the methodology asks (advantages as well as costs):
 
 ## Known limitations
 
-- `bench` has run only in the comparison's exploratory tier-2 sessions ([findings-tier2.md](../../comparisons/ecommerce-store-rough/findings-tier2.md)), before the tuning in the [implementation review](../../comparisons/ecommerce-store-rough/implementation-review.md) (P1b, P2, P5 to P7, E6).
+- `bench` has run only in the comparison's exploratory tier-2 sessions ([findings-tier2.md](../../comparisons/ecommerce-store-rough/findings-tier2.md)). Sessions 1 and 2 ran before the tuning in the [implementation review](../../comparisons/ecommerce-store-rough/implementation-review.md) (P1b, P2, P5 to P7, E6), and session 3 ran with it and with SPEC 0.3.0's candidate query.
 - Promotions are read per quote from Postgres, as the reference reads them from its tables: the comparison decided that both sides read them from the source of truth (review P1a, H1c). A production deployment might hold active promotions in memory with a short expiry; neither implementation does.
 - `options` is `jsonb`, which does not preserve key order; the aggregate's `options` objects therefore list keys in a different order from the reference's. Cross-implementation key order is not part of the contract (QUOTE-008 is per implementation).

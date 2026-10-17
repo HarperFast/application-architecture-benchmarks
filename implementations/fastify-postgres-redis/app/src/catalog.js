@@ -94,8 +94,8 @@ export function createCatalog({ pool, redis, counters, statics, cached = true })
 			return onHand;
 		},
 
-		async promotions(tier, categoryIds) {
-			const { rows } = await query(pool, SQL.promotions, [[tier, '*'], [...categoryIds, '*']]);
+		async promotions(tier, categoryIds, skus) {
+			const { rows } = await query(pool, SQL.promotions, [[tier, '*'], [...categoryIds, '*'], [...skus]]);
 			return rows.map(toPromotion);
 		},
 

@@ -18,7 +18,9 @@
 # Targets: `fpr` (Fastify + Postgres + Redis), `harper` (the reference, built from the
 # ecommerce-store checkout, unmodified) and `harper-unbatched` (the reference built from
 # HARPER_UNBATCHED_REF, default dd3a5f5^, the commit before its quote reads were batched; it
-# restores harper's snapshot).
+# restores harper's snapshot), and `fpr-async` (the same stack with Postgres synchronous_commit
+# off, to match a reference that acknowledges writes before syncing them; it restores fpr's
+# snapshot).
 #
 # Environment:
 #   TIER               1 (default; Podman machine) or 2 (Linux host with bench.slice, see environments/gcp)
@@ -216,7 +218,11 @@ configure_budget() {
 	fi
 }
 
-base_of() { case "$1" in harper-unbatched) echo harper ;; *) echo "$1" ;; esac; }
+base_of() { case "$1" in harper-unbatched) echo harper ;; fpr-async) echo fpr ;; *) echo "$1" ;; esac; }
+# fpr and its variants: the same three containers, volume and snapshot.
+is_fpr() { [ "$(base_of "$1")" = fpr ]; }
+# Correctness results name their scale unless it is dev, so a bench gate never overwrites the committed dev results.
+scale_tag() { [ "$SCALE" = dev ] || echo "-$SCALE"; }
 # fpr's snapshot also names the schema, indexes and loader it was loaded with: a changed storage
 # parameter or index must not restore an older load (the reference's schema is the checkout's).
 FPR_APP="$REPO/implementations/fastify-postgres-redis/app"
@@ -224,12 +230,12 @@ schema_tag() {
 	node -e 'const h = require("node:crypto").createHash("sha256"); for (const f of process.argv.slice(1)) h.update(require("node:fs").readFileSync(f)); console.log(h.digest("hex").slice(0, 8))' \
 		"$FPR_APP/sql/schema.sql" "$FPR_APP/sql/indexes.sql" "$FPR_APP/src/load-dataset.js"
 }
-snapshot_of() { echo "$(base_of "$1")-$SCALE-dataset-$DATASET_GENERATOR$([ "$1" = fpr ] && echo "-schema-$(schema_tag)").tar$([ "$SNAPSHOT_COMPRESS" = 1 ] && echo .gz)"; }
-services_of() { if [ "$1" = fpr ]; then echo "postgres redis app"; else echo "harper"; fi; }
-profile_of() { if [ "$1" != fpr ]; then echo "--profile harper"; fi; }
-port_of() { if [ "$1" = fpr ]; then echo "${APP_HOST_PORT:-39926}"; else echo "${HARPER_HOST_PORT:-39936}"; fi; }
-url_in_network() { if [ "$1" = fpr ]; then echo "http://app:3000"; else echo "http://harper:9926"; fi; }
-volume_of() { if [ "$1" = fpr ]; then echo "${PROJECT}_pg-data"; else echo "${PROJECT}_harper-data"; fi; }
+snapshot_of() { echo "$(base_of "$1")-$SCALE-dataset-$DATASET_GENERATOR$(is_fpr "$1" && echo "-schema-$(schema_tag)").tar$([ "$SNAPSHOT_COMPRESS" = 1 ] && echo .gz)"; }
+services_of() { if is_fpr "$1"; then echo "postgres redis app"; else echo "harper"; fi; }
+profile_of() { if ! is_fpr "$1"; then echo "--profile harper"; fi; }
+port_of() { if is_fpr "$1"; then echo "${APP_HOST_PORT:-39926}"; else echo "${HARPER_HOST_PORT:-39936}"; fi; }
+url_in_network() { if is_fpr "$1"; then echo "http://app:3000"; else echo "http://harper:9926"; fi; }
+volume_of() { if is_fpr "$1"; then echo "${PROJECT}_pg-data"; else echo "${PROJECT}_harper-data"; fi; }
 all_targets() { echo "fpr harper"; }
 
 # The build of the reference a trial runs, through ecommerce-store's own build variables
@@ -242,6 +248,8 @@ all_targets() { echo "fpr harper"; }
 # differ only in application code and both images stay built. It restores harper's snapshot, so
 # its schema must be the checkout's.
 select_variant() {
+	# WRITE-005: Postgres syncs every commit unless the target is the durability-matched variant.
+	export PG_SYNCHRONOUS_COMMIT="$([ "$1" = fpr-async ] && echo off || echo on)"
 	export TARGET_IMAGE=aab-harper-reference TARGET_DOCKERFILE="$ECOMMERCE_STORE_DIR/containers/Dockerfile"
 	if [ "$1" != harper-unbatched ]; then
 		export TARGET_CONTEXT="$ECOMMERCE_STORE_DIR" TARGET_IMAGE_TAG=checkout TARGET_COMMIT="$(git -C "$ECOMMERCE_STORE_DIR" rev-parse HEAD)"
@@ -268,7 +276,7 @@ build_target() {
 	# context and this compose project's directory without an fs entitlement Compose cannot pass:
 	# harper-unbatched builds .targets/<commit> with the checkout's containers/Dockerfile. Podman's
 	# builder has no such check. Seen first on the tier-2 host (Compose 5.6.0, Buildx 0.38.0).
-	if [ "$1" = fpr ]; then compose build app; else BUILDX_BAKE_ENTITLEMENTS_FS=0 compose --profile harper build harper; fi
+	if is_fpr "$1"; then compose build app; else BUILDX_BAKE_ENTITLEMENTS_FS=0 compose --profile harper build harper; fi
 }
 
 stop_target() {
@@ -292,7 +300,7 @@ load() {
 	for t in $(all_targets); do stop_target "$t"; done
 	select_variant "$target"
 	build_target "$target"
-	if [ "$target" = fpr ]; then
+	if is_fpr "$target"; then
 		compose up -d postgres redis
 		# Retries until Postgres and Redis answer; verifies every file against MANIFEST.json first.
 		compose run --rm loader
@@ -395,7 +403,7 @@ conditions_json() {
 	local target_dirty=0 harness_dirty=0 aab_dirty=0
 	[ -n "$(git -C "$REPO" status --porcelain)" ] && aab_dirty=1
 	[ -n "$(git -C "$ECOMMERCE_STORE_DIR" status --porcelain)" ] && harness_dirty=1
-	case "$target" in fpr) target_dirty=$aab_dirty ;; harper) target_dirty=$harness_dirty ;; esac
+	case "$(base_of "$target")" in fpr) target_dirty=$aab_dirty ;; harper) target_dirty=$harness_dirty ;; esac
 	node -e '
 		const [file, target, stamp, cold, contention, images, budget, aabCommit, aabDirty, esCommit, esDirty, info, appliedMemory, snapshot, parents, targetCommit, targetDirty] = process.argv.slice(1);
 		const env = process.env;
@@ -406,7 +414,7 @@ conditions_json() {
 			? { cpus: i.host.cpus, memTotal: i.host.memTotal, kernel: i.host.kernel, arch: i.host.arch, distribution: i.host.distribution, runtime: "podman " + i.version?.Version, cgroups: i.host.cgroupVersion, ociRuntime: i.host.ociRuntime?.name }
 			: { cpus: i.NCPU, memTotal: i.MemTotal, kernel: i.KernelVersion, arch: i.Architecture, distribution: i.OperatingSystem, runtime: "docker " + i.ServerVersion, cgroups: i.CgroupVersion, cgroupDriver: i.CgroupDriver };
 		const distinctParents = [...new Set(parents.trim().split(/\s+/).filter(Boolean))];
-		const fpr = target === "fpr";
+		const fpr = target === "fpr" || target === "fpr-async";
 		const out = {
 			tier: +env.TIER,
 			stamp, target,
@@ -439,6 +447,10 @@ conditions_json() {
 				    sizing: { workers: +env.APP_WORKERS, nodeHeapMiB: +env.NODE_HEAP_MIB, nodeSemiSpaceMiB: +env.NODE_SEMI_SPACE_MIB, pgSharedBuffers: env.PG_SHARED_BUFFERS, pgEffectiveCacheSize: env.PG_EFFECTIVE_CACHE_SIZE, pgWorkMem: env.PG_WORK_MEM || "4MB", redisMaxmemoryMB: +env.REDIS_MAXMEMORY_MB } }
 				: { mode: "single container", cgroup: env.TIER === "2" ? "/bench.slice/bench-target.slice" : null, targetCpus: +env.TARGET_CPUS, targetMemoryMiB: +env.TARGET_MEMORY_MIB, harperThreads: +(env.HARPER_THREADS || 2) },
 			lifecycle: { coldStartFirst200Ms: +cold, restoredFromSnapshot: true },
+			// SPEC WRITE-005: whether an acknowledged write is synced first.
+			durability: fpr
+				? { postgresSynchronousCommit: env.PG_SYNCHRONOUS_COMMIT || "on", fsync: "on" }
+				: { acknowledgedBeforeSync: true, note: "Harper 5.3.2 on RocksDB syncs no commit (HarperFast/harper#3243)" },
 			networking: "user-defined bridge (compose), plain HTTP; generator in a separate container on the same bridge",
 			machine,
 			contentionAtStart: { otherContainers: contention || null },
@@ -456,7 +468,7 @@ conditions_json() {
 # The commit of the target's application code: this repository for fpr, the ecommerce-store
 # checkout for harper, HARPER_UNBATCHED_REF for harper-unbatched.
 target_commit() {
-	case "$1" in
+	case "$(base_of "$1")" in
 		fpr) git -C "$REPO" rev-parse HEAD ;;
 		*) select_variant "$1"; echo "$TARGET_COMMIT" ;;
 	esac
@@ -465,7 +477,7 @@ target_commit() {
 post_run_stats() {
 	local target="$1" stamp="$2"
 	local file="$RAW/post-$target-$stamp.json"
-	if [ "$target" = fpr ]; then
+	if is_fpr "$target"; then
 		{
 			echo '{"meta":'; curl -s "http://localhost:$(port_of fpr)/__meta"
 			echo ',"stats":'; curl -s "http://localhost:$(port_of fpr)/__stats"
@@ -534,7 +546,7 @@ bench() {
 	local trial=1
 	while [ "$trial" -le "${TRIALS:-1}" ]; do
 		stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-		say "trial $trial/$TRIALS for $target (tier $TIER, $SCALE, budget: $([ "$target" = fpr ] && echo "$BUDGET, memory $MEMORY_SPLIT" || echo 'single container'))"
+		say "trial $trial/$TRIALS for $target (tier $TIER, $SCALE, budget: $(is_fpr "$target" && echo "$BUDGET, memory $MEMORY_SPLIT" || echo 'single container'))"
 		restore "$target"
 		wait_for_idle
 		local host_sampler="" samples=""
@@ -548,20 +560,20 @@ bench() {
 			sleep 2 # perf attaches before the cold start
 		fi
 		cold_start "$target"
-		if [ "$target" = fpr ]; then
+		if is_fpr "$target"; then
 			"$CLI" exec "$(ctr postgres)" psql -U store -d store -qAt -c "SELECT pg_stat_statements_reset()" -c "SELECT pg_stat_reset()" >/dev/null
 		fi
 		local cgroups="{" sep=""
 		for s in $(services_of "$target"); do cgroups="$cgroups$sep\"$s\":\"$(cgroup_of "$(ctr "$s")")\""; sep=","; done
 		cgroups="$cgroups}"
 		local budget_cgroup=""
-		if [ "$target" = fpr ]; then budget_cgroup="$BUDGET_CGROUP"; fi
+		if is_fpr "$target"; then budget_cgroup="$BUDGET_CGROUP"; fi
 		local conditions; conditions="$(conditions_json "$target" "$stamp")"
 		# The harness accounts the target's CPU itself from these cgroups (one per container).
 		local target_cgroups="" sep2=""
 		for s in $(services_of "$target"); do target_cgroups="$target_cgroups$sep2$s=$("$CLI" inspect --format '{{.Id}}' "$(ctr "$s")")"; sep2=","; done
 		local stats_url=""
-		if [ "$target" = fpr ]; then stats_url="http://app:3000/__stats"; fi
+		if is_fpr "$target"; then stats_url="http://app:3000/__stats"; fi
 		local harness_dirty=0; [ -n "$(git -C "$ECOMMERCE_STORE_DIR" status --porcelain)" ] && harness_dirty=1
 		# shellcheck disable=SC2086
 		compose run --rm -e TARGET="$target" -e TIER="$TIER" -e CGROUPS="$cgroups" -e BUDGET_CGROUP="$budget_cgroup" -e STATS_URL="$stats_url" \
@@ -587,7 +599,7 @@ bench() {
 		fi
 		if [ -n "$samples" ]; then sudo systemctl stop "arch-bench-sampler-$stamp" || true; fi
 		post_run_stats "$target" "$stamp" >/dev/null
-		if [ "$target" != fpr ]; then harper_memory "$target" "$stamp"; fi
+		if ! is_fpr "$target"; then harper_memory "$target" "$stamp"; fi
 		if [ -z "$record" ]; then
 			fault "no run record"
 		else
@@ -613,7 +625,7 @@ bench() {
 		fi
 		# A stale response voids the trial like a failed verification. `|| fault`, not a bare pipe:
 		# under set -e a failing audit would end run.sh before the verdict and the target's stop.
-		if [ "$target" = fpr ]; then audit "${record:+$RAW/$record}" | tee -a "$RAW/console-$target-$stamp.txt" || fault "coherence audit failed"; fi
+		if is_fpr "$target"; then audit "${record:+$RAW/$record}" | tee -a "$RAW/console-$target-$stamp.txt" || fault "coherence audit failed"; fi
 		# Targets share bench-target.slice on tier 2: never leave one resident inside the next one's budget.
 		stop_target "$target"
 		say "trial $target $stamp: $verdict"
@@ -626,7 +638,7 @@ bench() {
 conformance() {
 	local target="$1" stamp out
 	stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-	out="$HERE/results/conformance-$target-dataset-$DATASET_GENERATOR.json"
+	out="$HERE/results/conformance-$target$(scale_tag)-dataset-$DATASET_GENERATOR.json"
 	restore "$target"
 	cold_start "$target"
 	say "conformance suite against $target"
@@ -645,7 +657,7 @@ diff_reference() {
 	cold_start fpr; cold_start harper
 	# shellcheck disable=SC2086
 	node "$HERE/scripts/diff-reference.mjs" --a "http://localhost:$(port_of harper)" --b "http://localhost:$(port_of fpr)" \
-		--dataset "$HARNESS_DATASET_HOST" --out "$HERE/results/diff-reference-dataset-$DATASET_GENERATOR.json" ${DIFF_ARGS:-}
+		--dataset "$HARNESS_DATASET_HOST" --out "$HERE/results/diff-reference$(scale_tag)-dataset-$DATASET_GENERATOR.json" ${DIFF_ARGS:-}
 	stop_target harper
 }
 
@@ -653,7 +665,7 @@ diff_reference() {
 # every view must carry the last price written within FRESH_MS. Mutates prices: restores after.
 coherence() {
 	local target="$1"
-	local out="$HERE/results/coherence-$target-dataset-$DATASET_GENERATOR.txt"
+	local out="$HERE/results/coherence-$target$(scale_tag)-dataset-$DATASET_GENERATOR.txt"
 	restore "$target"
 	cold_start "$target"
 	say "verify-coherence against $target"
